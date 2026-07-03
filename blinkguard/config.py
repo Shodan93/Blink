@@ -16,6 +16,9 @@ DEFAULTS = {
     "warn_sound": False,
     # Warnung, wenn Blinzelrate (Blinzler/Minute) unter diesen Wert fällt
     "rate_threshold": 8,
+    # Sofortwarnung, wenn so viele Sekunden am Stück kein Blinzeln erkannt wird
+    "no_blink_enabled": True,
+    "no_blink_seconds": 10,
     # Mindestabstand zwischen zwei Warnungen in Sekunden
     "warn_cooldown_s": 180,
     # Auge-zu-Schwellwert für den eyeBlink-Score (0-1); kleiner = empfindlicher
@@ -27,6 +30,13 @@ DEFAULTS = {
     # Alle 20 Minuten an die 20-20-20-Regel erinnern
     "rule_20_20_20": False,
 }
+
+
+def asset_path(name: str) -> Path:
+    """Pfad zu mitgelieferten Dateien (Sound, Logo) – auch im PyInstaller-Build."""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / "blinkguard" / "assets" / name
+    return Path(__file__).resolve().parent / "assets" / name
 
 
 def data_dir() -> Path:

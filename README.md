@@ -11,9 +11,10 @@ Eine kleine Windows-Tray-App, die per Webcam misst, **wie oft du blinzelst** –
 - **Zwei Modi** (in den Einstellungen umschaltbar):
   - *Blinzelwarnung + Statistik* – warnt, wenn deine Blinzelrate zu lange unter dem Schwellwert liegt
   - *Nur Statistik* – misst nur, warnt nie
-- **Warnkanäle frei kombinierbar**: Windows-Benachrichtigung, dezentes Bildschirm-Overlay, Hinweiston – mit **„Warnung jetzt testen"-Button** in den Einstellungen, um alles sofort auszuprobieren
+- **Warnkanäle frei kombinierbar**: Windows-Benachrichtigung, **blaue Bildschirm-Aura** (Glühen am Rand, das ~20 % in den Bildschirm fadet – wie die Low-Health-Vignette in Shootern, klick-durchlässig) und **Wassertropfen-Sound** – mit **„Warnung jetzt testen"-Button** in den Einstellungen
+- **Zwei Warn-Trigger**: dauerhaft niedrige Blinzelrate (empfohlen: unter 8/min) und **Sofortwarnung nach X Sekunden ohne Blinzeln** (empfohlen: 10 s) – beide einzeln einstellbar, empfohlene Werte stehen direkt daneben
 - **Statistik mit Tagesverlauf** – aktuelle Rate, Blinzler heute, Ø-Rate, aktive Zeit und ein Balkendiagramm über den Tag (Speicherung lokal in SQLite, nur Zahlen pro Minute)
-- **Live-Panel im Statistik-Fenster** – jeder erkannte Blinzler blitzt sofort auf (mit Sitzungszähler und Uhrzeit), daneben der Anwesenheitsstatus (● Aktiv / ○ Abwesend / ⏸ Pausiert) und der laufende Auge-zu-Score mit Schwellwert – ideal, um die Erkennung zu prüfen und die Empfindlichkeit zu justieren. Abwesenheit wird automatisch erkannt: ohne Gesicht wird nichts gezählt und nie gewarnt
+- **Hauptfenster mit allem an einem Ort** – Kopfzeile mit Anwesenheitsstatus (● Aktiv / ○ Abwesend / ⏸ Pausiert), Pause-Knopf und ⚙-Einstellungen; Live-Panel, in dem jeder Blinzler sofort aufblitzt (Sitzungszähler + Uhrzeit) und ein Balken „Ohne Blinzeln: X s" bis zur Warnschwelle läuft. Abwesenheit wird automatisch erkannt: ohne Gesicht wird nichts gezählt und nie gewarnt
 - **Extras**: Autostart mit Windows, Pause-Button im Tray-Menü (gibt die Kamera vollständig frei – z. B. für Videocalls), 20-20-20-Erinnerung, einstellbare Empfindlichkeit und Warnschwelle
 
 ## Installation (empfohlen): fertige App herunterladen
@@ -63,7 +64,8 @@ Danach liegt die fertige App unter `dist\BlinkGuard\BlinkGuard.exe`. Den ganzen 
 |---|---|---|
 | Modus | Warnung + Statistik | Oder „Nur Statistik“ – dann gibt es nie Warnungen |
 | Warnkanäle | Benachrichtigung | Toast, Overlay und Ton beliebig kombinierbar |
-| Warnen unter | 8 Blinzler/min | Schwellwert für die Warnung |
+| Warnen unter | 8 Blinzler/min | Schwellwert für die Raten-Warnung |
+| Sofortwarnung ohne Blinzeln | an, 10 s | Warnt direkt, wenn so lange kein Blinzeln erkannt wurde |
 | Pause zwischen Warnungen | 3 min | Damit die Erinnerung nicht nervt |
 | Auge-zu-Schwellwert | 0.50 | Verringern, wenn Blinzler nicht erkannt werden; erhöhen bei Fehlzählungen |
 | Kamera-Index | 0 | Bei mehreren Kameras durchprobieren (0, 1, 2 …) |

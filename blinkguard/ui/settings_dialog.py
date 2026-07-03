@@ -46,8 +46,8 @@ class SettingsDialog(QDialog):
         warn_layout = QFormLayout(self.warn_box)
 
         self.check_toast = QCheckBox("Windows-Benachrichtigung")
-        self.check_overlay = QCheckBox("Dezentes Bildschirm-Overlay")
-        self.check_sound = QCheckBox("Hinweiston")
+        self.check_overlay = QCheckBox("Blaue Bildschirm-Aura (Glühen am Rand)")
+        self.check_sound = QCheckBox("Wassertropfen-Sound")
         warn_layout.addRow(self.check_toast)
         warn_layout.addRow(self.check_overlay)
         warn_layout.addRow(self.check_sound)
@@ -55,12 +55,24 @@ class SettingsDialog(QDialog):
         self.spin_threshold = QSpinBox()
         self.spin_threshold.setRange(2, 15)
         self.spin_threshold.setSuffix(" Blinzler/min")
-        warn_layout.addRow("Warnen unter:", self.spin_threshold)
+        warn_layout.addRow("Warnen unter (empfohlen: 8):", self.spin_threshold)
+
+        no_blink_row = QHBoxLayout()
+        self.check_no_blink = QCheckBox("Sofort warnen ohne Blinzeln für")
+        self.spin_no_blink = QSpinBox()
+        self.spin_no_blink.setRange(5, 60)
+        self.spin_no_blink.setSuffix(" s")
+        self.check_no_blink.toggled.connect(self.spin_no_blink.setEnabled)
+        no_blink_row.addWidget(self.check_no_blink)
+        no_blink_row.addWidget(self.spin_no_blink)
+        no_blink_row.addWidget(QLabel("(empfohlen: 10 s)"))
+        no_blink_row.addStretch()
+        warn_layout.addRow(no_blink_row)
 
         self.spin_cooldown = QSpinBox()
         self.spin_cooldown.setRange(1, 30)
         self.spin_cooldown.setSuffix(" min")
-        warn_layout.addRow("Pause zwischen Warnungen:", self.spin_cooldown)
+        warn_layout.addRow("Pause zwischen Warnungen (empfohlen: 3 min):", self.spin_cooldown)
 
         self.button_test = QPushButton("Warnung jetzt testen")
         self.button_test.setToolTip(
@@ -132,6 +144,9 @@ class SettingsDialog(QDialog):
         self.check_overlay.setChecked(cfg.get("warn_overlay"))
         self.check_sound.setChecked(cfg.get("warn_sound"))
         self.spin_threshold.setValue(int(cfg.get("rate_threshold")))
+        self.check_no_blink.setChecked(cfg.get("no_blink_enabled"))
+        self.spin_no_blink.setValue(int(cfg.get("no_blink_seconds")))
+        self.spin_no_blink.setEnabled(cfg.get("no_blink_enabled"))
         self.spin_cooldown.setValue(max(1, int(cfg.get("warn_cooldown_s")) // 60))
         self.slider_sensitivity.setValue(round(float(cfg.get("blink_threshold")) * 100))
         self.sensitivity_label.setText(f"{cfg.get('blink_threshold'):.2f}")
@@ -146,6 +161,8 @@ class SettingsDialog(QDialog):
             "warn_overlay": self.check_overlay.isChecked(),
             "warn_sound": self.check_sound.isChecked(),
             "rate_threshold": self.spin_threshold.value(),
+            "no_blink_enabled": self.check_no_blink.isChecked(),
+            "no_blink_seconds": self.spin_no_blink.value(),
             "warn_cooldown_s": self.spin_cooldown.value() * 60,
             "blink_threshold": self.slider_sensitivity.value() / 100.0,
             "camera_index": self.spin_camera.value(),

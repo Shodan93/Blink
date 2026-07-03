@@ -64,7 +64,7 @@ class BlinkDetector(QThread):
     """Kamera-Thread. Signale werden im Qt-Hauptthread verarbeitet."""
 
     sig_blink = Signal(float)          # Zeitstempel eines erkannten Blinzlers
-    # (Rate/min, Gesicht sichtbar, Gesichts-Anteil 60s, aktueller Auge-zu-Score)
+    # (Rate/min, Gesicht sichtbar, Gesichts-Anteil 60s, Sekunden ohne Blinzeln)
     sig_tick = Signal(float, bool, float, float)
     sig_error = Signal(str)            # Kamera-/Erkennungsfehler (einmalig)
 
@@ -129,6 +129,7 @@ class BlinkDetector(QThread):
         face_samples = deque()       # (Zeitstempel, Gesicht sichtbar?)
         closed_since = None          # Beginn der aktuellen Augen-zu-Phase
         eyes_closed = False
+        blink_marker = None          # letzter Blinzler bzw. Gesichts-Wiederkehr
         last_tick = 0.0
         start = time.monotonic()
         last_ts_ms = -1
@@ -148,6 +149,7 @@ class BlinkDetector(QThread):
                     face_samples.clear()
                     closed_since = None
                     eyes_closed = False
+                    blink_marker = None
                     time.sleep(0.2)
                     continue
 
@@ -179,8 +181,10 @@ class BlinkDetector(QThread):
                 face_present = bool(result.face_landmarks)
                 face_samples.append((now, face_present))
 
-                score = 0.0
                 if face_present:
+                    if blink_marker is None:
+                        # Gesicht (wieder) da: Ohne-Blinzeln-Uhr neu starten
+                        blink_marker = now
                     score = blink_score(result)
                     if not eyes_closed and score >= self.blink_threshold:
                         eyes_closed = True
@@ -189,11 +193,13 @@ class BlinkDetector(QThread):
                         eyes_closed = False
                         if closed_since is not None and (now - closed_since) <= MAX_CLOSED_S:
                             blink_times.append(now)
+                            blink_marker = now
                             self.sig_blink.emit(time.time())
                         closed_since = None
                 else:
                     closed_since = None
                     eyes_closed = False
+                    blink_marker = None
 
                 # Rollierendes 60-Sekunden-Fenster pflegen
                 cutoff = now - RATE_WINDOW_S
@@ -208,7 +214,8 @@ class BlinkDetector(QThread):
                     face_ratio = sum(1 for _, p in face_samples if p) / len(face_samples)
                     window = min(RATE_WINDOW_S, max(1.0, now - face_samples[0][0]))
                     rate = len(blink_times) * (60.0 / window)
-                    self.sig_tick.emit(rate, face_present, face_ratio, score)
+                    since_blink = (now - blink_marker) if blink_marker is not None else 0.0
+                    self.sig_tick.emit(rate, face_present, face_ratio, since_blink)
 
                 # CPU schonen: auf Ziel-Framerate drosseln
                 elapsed = time.monotonic() - loop_start

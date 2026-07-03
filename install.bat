@@ -21,7 +21,7 @@ echo [2/3] Abhaengigkeiten installieren (kann einige Minuten dauern) ...
 if errorlevel 1 (pause & exit /b 1)
 
 echo [3/3] BlinkGuard.exe bauen ...
-.venv\Scripts\python.exe -m PyInstaller --noconfirm --noconsole --name BlinkGuard --collect-all mediapipe blinkguard\__main__.py
+.venv\Scripts\python.exe -m PyInstaller --noconfirm --noconsole --name BlinkGuard --collect-all mediapipe --add-data "blinkguard\assets;blinkguard\assets" blinkguard\__main__.py
 if errorlevel 1 (pause & exit /b 1)
 
 echo.

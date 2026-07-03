@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -101,14 +102,31 @@ class DayChart(QWidget):
 
 
 class StatsWindow(QWidget):
+    sig_settings = Signal()  # Zahnrad geklickt -> Einstellungen öffnen
+    sig_pause = Signal()     # Pause/Fortsetzen geklickt
+
     def __init__(self, store: StatsStore, config):
         super().__init__()
         self.store = store
         self.config = config
-        self.setWindowTitle("BlinkGuard – Statistik")
-        self.resize(560, 420)
+        self.setWindowTitle("BlinkGuard")
+        self.resize(560, 440)
 
         layout = QVBoxLayout(self)
+
+        # --- Kopfzeile: Status + Schnellzugriff -----------------------------
+        header = QHBoxLayout()
+        self.status_label = QLabel("● startet …")
+        header.addWidget(self.status_label)
+        header.addStretch()
+        self.pause_button = QPushButton("⏸ Pause")
+        self.pause_button.setToolTip("Erkennung pausieren/fortsetzen (gibt die Kamera frei)")
+        self.pause_button.clicked.connect(self.sig_pause.emit)
+        header.addWidget(self.pause_button)
+        settings_button = QPushButton("⚙ Einstellungen")
+        settings_button.clicked.connect(self.sig_settings.emit)
+        header.addWidget(settings_button)
+        layout.addLayout(header)
 
         big_font = QFont()
         big_font.setPointSize(20)
@@ -138,16 +156,13 @@ class StatsWindow(QWidget):
         line.setFrameShape(QFrame.HLine)
         layout.addWidget(line)
 
-        # --- Live-Panel (Debug): jeder Blinzler sofort sichtbar ------------
+        # --- Live-Panel: jeder Blinzler sofort sichtbar ---------------------
         live_box = QGroupBox("Live")
         live_layout = QHBoxLayout(live_box)
 
-        self.status_label = QLabel("● startet …")
-        live_layout.addWidget(self.status_label)
-
-        self.blink_flash = QLabel("👁 Blinzler!")
+        self.blink_flash = QLabel("Blinzler!")
         self.blink_flash.setAlignment(Qt.AlignCenter)
-        self.blink_flash.setMinimumWidth(96)
+        self.blink_flash.setMinimumWidth(90)
         self._flash_off_style = "color: #777777; padding: 2px 8px;"
         self._flash_on_style = (
             "background: #2e7d32; color: white; border-radius: 8px; padding: 2px 8px;"
@@ -162,13 +177,14 @@ class StatsWindow(QWidget):
         self.last_blink_label = QLabel("zuletzt: –")
         live_layout.addWidget(self.last_blink_label)
 
-        self.score_bar = QProgressBar()
-        self.score_bar.setRange(0, 100)
-        self.score_bar.setToolTip(
-            "Auge-zu-Score der Erkennung (0 = offen, 1 = geschlossen). "
-            "Übersteigt er kurz den Schwellwert, zählt ein Blinzler."
+        self.no_blink_bar = QProgressBar()
+        self.no_blink_bar.setRange(0, 100)
+        self.no_blink_bar.setFormat("Ohne Blinzeln: – s")
+        self.no_blink_bar.setToolTip(
+            "Zeit seit dem letzten Blinzler. Läuft der Balken voll, "
+            "kommt die Ohne-Blinzeln-Warnung (falls aktiviert)."
         )
-        live_layout.addWidget(self.score_bar, stretch=1)
+        live_layout.addWidget(self.no_blink_bar, stretch=1)
 
         layout.addWidget(live_box)
 
@@ -204,7 +220,7 @@ class StatsWindow(QWidget):
             self.blink_flash.setStyleSheet(self._flash_on_style)
             self._flash_timer.start()
 
-    def set_live(self, rate: float, face_present: bool, score: float, paused: bool):
+    def set_live(self, rate: float, face_present: bool, since_blink: float, paused: bool):
         """Sekündlicher Live-Status aus dem Kamera-Thread."""
         self._live_rate = rate
         if not self.isVisible():
@@ -213,17 +229,29 @@ class StatsWindow(QWidget):
         if paused:
             self.status_label.setText("⏸ Pausiert")
             self.status_label.setStyleSheet("color: #9e9e9e; font-weight: bold;")
+            self.pause_button.setText("▶ Fortsetzen")
         elif face_present:
             self.status_label.setText("● Aktiv")
             self.status_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
+            self.pause_button.setText("⏸ Pause")
         else:
             self.status_label.setText("○ Abwesend")
             self.status_label.setStyleSheet("color: #e65100; font-weight: bold;")
-        threshold = float(self.config.get("blink_threshold"))
-        self.score_bar.setValue(round(score * 100))
-        self.score_bar.setFormat(
-            f"Auge-zu: {score:.2f}  (Schwelle {threshold:.2f})"
-        )
+            self.pause_button.setText("⏸ Pause")
+
+        if paused or not face_present:
+            self.no_blink_bar.setValue(0)
+            self.no_blink_bar.setFormat("Ohne Blinzeln: – s")
+            return
+        limit = max(1, int(self.config.get("no_blink_seconds")))
+        if self.config.get("no_blink_enabled"):
+            self.no_blink_bar.setValue(min(100, round(since_blink / limit * 100)))
+            self.no_blink_bar.setFormat(
+                f"Ohne Blinzeln: {since_blink:.0f} s  (Warnung bei {limit} s)"
+            )
+        else:
+            self.no_blink_bar.setValue(0)
+            self.no_blink_bar.setFormat(f"Ohne Blinzeln: {since_blink:.0f} s")
 
     def refresh(self):
         total, active_min, avg = self.store.today_summary()

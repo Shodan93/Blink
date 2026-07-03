@@ -5,13 +5,17 @@ import threading
 
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
-from blinkguard.config import Config
-from blinkguard.ui.overlay import OverlayWarning
+from blinkguard.config import Config, asset_path
+from blinkguard.ui.aura import AuraOverlay
 
 WARN_TITLE = "BlinkGuard – Augen-Erinnerung"
 WARN_TEXT = (
     "Du blinzelst gerade sehr selten ({rate:.0f}×/min). "
     "Blinzle ein paar Mal bewusst, das hält die Augen feucht."
+)
+NO_BLINK_TEXT = (
+    "Seit {seconds:.0f} Sekunden kein Blinzeln – "
+    "kurz die Augen schließen tut gut."
 )
 RULE_TITLE = "BlinkGuard – 20-20-20-Regel"
 RULE_TEXT = (
@@ -21,11 +25,17 @@ RULE_TEXT = (
 
 
 def _play_sound():
-    """Sanfter Zweiklang. winsound.Beep erzeugt den Ton selbst und ist damit
-    unabhängig vom Windows-Soundschema (MessageBeep ist bei stillem Schema
-    lautlos). Läuft im Hintergrund-Thread, da Beep blockiert."""
+    """Wassertropfen-Sound (läuft asynchron, blockiert die UI nicht)."""
+    wav = asset_path("water_drop.wav")
+    if sys.platform == "win32" and wav.exists():
+        import winsound
 
-    def _run():
+        winsound.PlaySound(
+            str(wav), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT
+        )
+        return
+
+    def _fallback():
         try:
             if sys.platform == "win32":
                 import winsound
@@ -37,23 +47,35 @@ def _play_sound():
         except Exception:
             QApplication.beep()
 
-    threading.Thread(target=_run, daemon=True).start()
+    threading.Thread(target=_fallback, daemon=True).start()
 
 
 class Notifier:
     def __init__(self, tray: QSystemTrayIcon, config: Config):
         self.tray = tray
         self.config = config
-        self.overlay = OverlayWarning()
+        self.aura = AuraOverlay()
+
+    def _fire(self, text: str, channels: dict):
+        if channels.get("warn_toast"):
+            self.tray.showMessage(WARN_TITLE, text, QSystemTrayIcon.Information, 6000)
+        if channels.get("warn_overlay"):
+            self.aura.flash()
+        if channels.get("warn_sound"):
+            _play_sound()
+
+    def _config_channels(self) -> dict:
+        return {
+            "warn_toast": self.config.get("warn_toast"),
+            "warn_overlay": self.config.get("warn_overlay"),
+            "warn_sound": self.config.get("warn_sound"),
+        }
 
     def warn_low_blink_rate(self, rate: float):
-        text = WARN_TEXT.format(rate=rate)
-        if self.config.get("warn_toast"):
-            self.tray.showMessage(WARN_TITLE, text, QSystemTrayIcon.Information, 6000)
-        if self.config.get("warn_overlay"):
-            self.overlay.show_message("Blinzeln nicht vergessen! 👁")
-        if self.config.get("warn_sound"):
-            _play_sound()
+        self._fire(WARN_TEXT.format(rate=rate), self._config_channels())
+
+    def warn_no_blink(self, seconds: float):
+        self._fire(NO_BLINK_TEXT.format(seconds=seconds), self._config_channels())
 
     def test_warning(self, channels: dict):
         """Warnung sofort auslösen – für den Test-Button in den Einstellungen.
@@ -61,17 +83,7 @@ class Notifier:
         Nutzt die im Dialog gerade ausgewählten Kanäle, nicht die
         gespeicherte Konfiguration.
         """
-        if channels.get("warn_toast"):
-            self.tray.showMessage(
-                WARN_TITLE,
-                "Testwarnung – so sieht die Blinzelerinnerung aus.",
-                QSystemTrayIcon.Information,
-                6000,
-            )
-        if channels.get("warn_overlay"):
-            self.overlay.show_message("Testwarnung – Blinzeln nicht vergessen! 👁")
-        if channels.get("warn_sound"):
-            _play_sound()
+        self._fire("Testwarnung – so sieht die Blinzelerinnerung aus.", channels)
 
     def remind_20_20_20(self):
         self.tray.showMessage(RULE_TITLE, RULE_TEXT, QSystemTrayIcon.Information, 8000)

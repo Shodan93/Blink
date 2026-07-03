@@ -4,6 +4,7 @@ REM Voraussetzung: pip install -r requirements.txt pyinstaller
 
 python -m PyInstaller --noconfirm --noconsole --name BlinkGuard ^
     --collect-all mediapipe ^
+    --add-data "blinkguard\assets;blinkguard\assets" ^
     blinkguard\__main__.py
 
 echo.

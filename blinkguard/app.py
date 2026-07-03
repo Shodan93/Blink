@@ -22,7 +22,8 @@ from blinkguard.ui.icons import (
     COLOR_ERROR,
     COLOR_PAUSED,
     COLOR_WARNING,
-    make_eye_icon,
+    app_icon,
+    make_tray_icon,
 )
 from blinkguard.ui.settings_dialog import SettingsDialog
 from blinkguard.ui.stats_window import StatsWindow
@@ -48,11 +49,12 @@ class BlinkGuardApp:
         self.session_blinks = 0
 
         # --- Tray -------------------------------------------------------
+        self.app.setWindowIcon(app_icon())
         self.icons = {
-            "active": make_eye_icon(COLOR_ACTIVE),
-            "warning": make_eye_icon(COLOR_WARNING),
-            "paused": make_eye_icon(COLOR_PAUSED, closed=True),
-            "error": make_eye_icon(COLOR_ERROR),
+            "active": make_tray_icon(COLOR_ACTIVE),
+            "warning": make_tray_icon(COLOR_WARNING),
+            "paused": make_tray_icon(COLOR_PAUSED),
+            "error": make_tray_icon(COLOR_ERROR),
         }
         self.tray = QSystemTrayIcon(self.icons["active"])
         self.tray.setToolTip(f"{APP_NAME} – startet …")
@@ -80,6 +82,9 @@ class BlinkGuardApp:
 
         # --- Fenster & Benachrichtigungen --------------------------------
         self.stats_window = StatsWindow(self.store, self.config)
+        self.stats_window.setWindowIcon(app_icon())
+        self.stats_window.sig_settings.connect(self.show_settings)
+        self.stats_window.sig_pause.connect(self.toggle_pause)
         self.notifier = Notifier(self.tray, self.config)
 
         # --- Erkennungs-Thread -------------------------------------------
@@ -113,11 +118,11 @@ class BlinkGuardApp:
         self.session_blinks += 1
         self.stats_window.on_blink(self.session_blinks)
 
-    def _on_tick(self, rate: float, face_present: bool, face_ratio: float, score: float):
+    def _on_tick(self, rate: float, face_present: bool, face_ratio: float, since_blink: float):
         self.current_rate = rate
         self._recent_face = face_present
         self.accumulator.add_face_second(face_present)
-        self.stats_window.set_live(rate, face_present, score, self.paused)
+        self.stats_window.set_live(rate, face_present, since_blink, self.paused)
 
         if self.paused or self.camera_failed:
             return
@@ -125,6 +130,17 @@ class BlinkGuardApp:
         threshold = float(self.config.get("rate_threshold"))
         warn_mode = self.config.get("mode") == "warn"
         now = time.monotonic()
+        cooldown_over = (now - self.last_warning_ts) >= float(
+            self.config.get("warn_cooldown_s")
+        )
+
+        # Sofortwarnung: X Sekunden am Stück kein Blinzeln ("Starren")
+        no_blink = (
+            warn_mode
+            and self.config.get("no_blink_enabled")
+            and face_present
+            and since_blink >= float(self.config.get("no_blink_seconds"))
+        )
 
         low_rate = (
             warn_mode
@@ -133,14 +149,15 @@ class BlinkGuardApp:
             and rate < threshold
         )
 
-        if low_rate and (now - self.last_warning_ts) >= float(
-            self.config.get("warn_cooldown_s")
-        ):
+        if no_blink and cooldown_over:
+            self.last_warning_ts = now
+            self.notifier.warn_no_blink(since_blink)
+        elif low_rate and cooldown_over:
             self.last_warning_ts = now
             self.notifier.warn_low_blink_rate(rate)
 
         # Tray-Zustand aktualisieren
-        self._set_tray_state("warning" if low_rate else "active")
+        self._set_tray_state("warning" if (low_rate or no_blink) else "active")
         if face_present:
             self.tray.setToolTip(f"{APP_NAME} – {rate:.0f} Blinzler/min")
         else:
@@ -201,7 +218,7 @@ class BlinkGuardApp:
     def toggle_pause(self):
         self.paused = not self.paused
         self.detector.set_paused(self.paused)
-        self.stats_window.set_live(0.0, False, 0.0, self.paused)
+        self.stats_window.set_live(0.0, False, 0.0, paused=self.paused)
         if self.paused:
             self.accumulator.flush()
             self.action_pause.setText("Erkennung fortsetzen")
