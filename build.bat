@@ -1,0 +1,11 @@
+@echo off
+REM Baut BlinkGuard als eigenstaendige Windows-App (dist\BlinkGuard\BlinkGuard.exe)
+REM Voraussetzung: pip install -r requirements.txt pyinstaller
+
+pyinstaller --noconfirm --noconsole --name BlinkGuard ^
+    --collect-all mediapipe ^
+    blinkguard\__main__.py
+
+echo.
+echo Fertig: dist\BlinkGuard\BlinkGuard.exe
+pause

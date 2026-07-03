@@ -1,0 +1,142 @@
+"""Einstellungs-Dialog: Modus, Warnkanäle, Schwellwerte, Autostart."""
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QRadioButton,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+)
+
+from blinkguard import autostart
+from blinkguard.config import Config
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, config: Config, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.setWindowTitle("BlinkGuard – Einstellungen")
+        self.setMinimumWidth(430)
+
+        layout = QVBoxLayout(self)
+
+        # --- Modus ----------------------------------------------------------
+        mode_box = QGroupBox("Modus")
+        mode_layout = QVBoxLayout(mode_box)
+        self.radio_warn = QRadioButton("Blinzelwarnung + Statistik")
+        self.radio_stats = QRadioButton("Nur Statistik (keine Warnungen)")
+        mode_layout.addWidget(self.radio_warn)
+        mode_layout.addWidget(self.radio_stats)
+        layout.addWidget(mode_box)
+
+        # --- Warnung --------------------------------------------------------
+        self.warn_box = QGroupBox("Blinzelwarnung")
+        warn_layout = QFormLayout(self.warn_box)
+
+        self.check_toast = QCheckBox("Windows-Benachrichtigung")
+        self.check_overlay = QCheckBox("Dezentes Bildschirm-Overlay")
+        self.check_sound = QCheckBox("Hinweiston")
+        warn_layout.addRow(self.check_toast)
+        warn_layout.addRow(self.check_overlay)
+        warn_layout.addRow(self.check_sound)
+
+        self.spin_threshold = QSpinBox()
+        self.spin_threshold.setRange(2, 15)
+        self.spin_threshold.setSuffix(" Blinzler/min")
+        warn_layout.addRow("Warnen unter:", self.spin_threshold)
+
+        self.spin_cooldown = QSpinBox()
+        self.spin_cooldown.setRange(1, 30)
+        self.spin_cooldown.setSuffix(" min")
+        warn_layout.addRow("Pause zwischen Warnungen:", self.spin_cooldown)
+
+        layout.addWidget(self.warn_box)
+        self.radio_warn.toggled.connect(self.warn_box.setEnabled)
+
+        # --- Erkennung ------------------------------------------------------
+        detect_box = QGroupBox("Erkennung")
+        detect_layout = QFormLayout(detect_box)
+
+        self.slider_sensitivity = QSlider(Qt.Horizontal)
+        # EAR-Schwellwert 0.15–0.30, als Slider-Wert ×100
+        self.slider_sensitivity.setRange(15, 30)
+        self.sensitivity_label = QLabel()
+        self.slider_sensitivity.valueChanged.connect(
+            lambda v: self.sensitivity_label.setText(f"{v / 100:.2f}")
+        )
+        sens_row = QHBoxLayout()
+        sens_row.addWidget(self.slider_sensitivity)
+        sens_row.addWidget(self.sensitivity_label)
+        detect_layout.addRow("Empfindlichkeit (EAR):", sens_row)
+        detect_layout.addRow(
+            QLabel(
+                "<small>Höher = empfindlicher. Standard 0.21. Erhöhen, wenn "
+                "Blinzler nicht erkannt werden; verringern, wenn zu viele "
+                "gezählt werden.</small>"
+            )
+        )
+
+        self.spin_camera = QSpinBox()
+        self.spin_camera.setRange(0, 9)
+        detect_layout.addRow("Kamera-Index:", self.spin_camera)
+        layout.addWidget(detect_box)
+
+        # --- Extras ---------------------------------------------------------
+        extras_box = QGroupBox("Extras")
+        extras_layout = QVBoxLayout(extras_box)
+        self.check_rule = QCheckBox("20-20-20-Erinnerung (alle 20 Minuten)")
+        extras_layout.addWidget(self.check_rule)
+        self.check_autostart = QCheckBox("Mit Windows starten")
+        if not autostart.is_supported():
+            self.check_autostart.setEnabled(False)
+            self.check_autostart.setToolTip("Nur unter Windows verfügbar.")
+        extras_layout.addWidget(self.check_autostart)
+        layout.addWidget(extras_box)
+
+        # --- Buttons ---------------------------------------------------------
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._load_values()
+
+    def _load_values(self):
+        cfg = self.config
+        warn_mode = cfg.get("mode") == "warn"
+        self.radio_warn.setChecked(warn_mode)
+        self.radio_stats.setChecked(not warn_mode)
+        self.warn_box.setEnabled(warn_mode)
+
+        self.check_toast.setChecked(cfg.get("warn_toast"))
+        self.check_overlay.setChecked(cfg.get("warn_overlay"))
+        self.check_sound.setChecked(cfg.get("warn_sound"))
+        self.spin_threshold.setValue(int(cfg.get("rate_threshold")))
+        self.spin_cooldown.setValue(max(1, int(cfg.get("warn_cooldown_s")) // 60))
+        self.slider_sensitivity.setValue(round(float(cfg.get("ear_threshold")) * 100))
+        self.sensitivity_label.setText(f"{cfg.get('ear_threshold'):.2f}")
+        self.spin_camera.setValue(int(cfg.get("camera_index")))
+        self.check_rule.setChecked(cfg.get("rule_20_20_20"))
+        self.check_autostart.setChecked(autostart.is_enabled())
+
+    def values(self) -> dict:
+        return {
+            "mode": "warn" if self.radio_warn.isChecked() else "stats",
+            "warn_toast": self.check_toast.isChecked(),
+            "warn_overlay": self.check_overlay.isChecked(),
+            "warn_sound": self.check_sound.isChecked(),
+            "rate_threshold": self.spin_threshold.value(),
+            "warn_cooldown_s": self.spin_cooldown.value() * 60,
+            "ear_threshold": self.slider_sensitivity.value() / 100.0,
+            "camera_index": self.spin_camera.value(),
+            "rule_20_20_20": self.check_rule.isChecked(),
+            "autostart": self.check_autostart.isChecked(),
+        }

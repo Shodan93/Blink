@@ -1,0 +1,76 @@
+# 👁 BlinkGuard
+
+Eine kleine Windows-Tray-App, die per Webcam misst, **wie oft du blinzelst** – und dich bei konzentrierter Bildschirmarbeit sanft daran erinnert, wenn du es zu selten tust.
+
+**Warum?** Gesund sind etwa 15–20 Blinzler pro Minute. Bei konzentrierter Arbeit am Bildschirm sinkt die Rate oft auf 5–7/min – die Augen trocknen aus, werden müde und gereizt. BlinkGuard erkennt das und erinnert dich rechtzeitig.
+
+## Funktionen
+
+- **Blinzelerkennung per Webcam** – MediaPipe FaceMesh + Eye-Aspect-Ratio, läuft komplett lokal, keine Bilder verlassen deinen PC, nichts wird aufgezeichnet
+- **Lebt im System-Tray** – kein Fenster im Weg; Linksklick aufs Tray-Icon öffnet die Statistik, das Icon zeigt den Zustand (grün = alles gut, orange = zu wenig geblinzelt, grau = pausiert, rot = Kameraproblem)
+- **Zwei Modi** (in den Einstellungen umschaltbar):
+  - *Blinzelwarnung + Statistik* – warnt, wenn deine Blinzelrate zu lange unter dem Schwellwert liegt
+  - *Nur Statistik* – misst nur, warnt nie
+- **Warnkanäle frei kombinierbar**: Windows-Benachrichtigung, dezentes Bildschirm-Overlay, Hinweiston
+- **Statistik mit Tagesverlauf** – aktuelle Rate, Blinzler heute, Ø-Rate, aktive Zeit und ein Balkendiagramm über den Tag (Speicherung lokal in SQLite, nur Zahlen pro Minute)
+- **Extras**: Autostart mit Windows, Pause-Button im Tray-Menü (z. B. für Videocalls), 20-20-20-Erinnerung, einstellbare Empfindlichkeit und Warnschwelle
+
+## Schnellstart (aus dem Quellcode)
+
+Voraussetzung: **Python 3.10–3.12** (64-bit) von [python.org](https://www.python.org/downloads/) – MediaPipe unterstützt noch kein 3.13.
+
+```bat
+git clone <dieses-repo>
+cd Blink
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python -m blinkguard
+```
+
+Die App startet direkt in den Infobereich (Tray) unten rechts. Beim ersten Start fragt Windows ggf. nach der **Kamera-Berechtigung** – zulassen.
+
+## Als .exe bauen (ohne Python starten)
+
+```bat
+pip install pyinstaller
+build.bat
+```
+
+Danach liegt die fertige App unter `dist\BlinkGuard\BlinkGuard.exe`. Den ganzen `BlinkGuard`-Ordner kannst du beliebig verschieben; ein Doppelklick auf die Exe startet die App ohne Konsolenfenster.
+
+## Bedienung
+
+| Aktion | Wirkung |
+|---|---|
+| Linksklick auf Tray-Icon | Statistik-Fenster öffnen |
+| Rechtsklick auf Tray-Icon | Menü: Statistik, Einstellungen, Pause, Beenden |
+| Statistik-Fenster schließen | Fenster wird nur versteckt, App läuft im Tray weiter |
+
+## Einstellungen
+
+| Einstellung | Standard | Bedeutung |
+|---|---|---|
+| Modus | Warnung + Statistik | Oder „Nur Statistik“ – dann gibt es nie Warnungen |
+| Warnkanäle | Benachrichtigung | Toast, Overlay und Ton beliebig kombinierbar |
+| Warnen unter | 8 Blinzler/min | Schwellwert für die Warnung |
+| Pause zwischen Warnungen | 3 min | Damit die Erinnerung nicht nervt |
+| Empfindlichkeit (EAR) | 0.21 | Erhöhen, wenn Blinzler nicht erkannt werden; verringern bei Fehlzählungen |
+| Kamera-Index | 0 | Bei mehreren Kameras durchprobieren (0, 1, 2 …) |
+| 20-20-20-Erinnerung | aus | Alle 20 min: 20 s auf etwas in ~6 m Entfernung schauen |
+| Autostart | aus | Startet BlinkGuard beim Windows-Login |
+
+Gewarnt wird nur, wenn du auch wirklich vor dem Bildschirm sitzt (Gesicht in mindestens 70 % der letzten Minute erkannt) – Aufstehen oder Wegschauen löst keine Fehlwarnung aus.
+
+## Datenschutz
+
+- Die Kamerabilder werden **nur im Arbeitsspeicher** analysiert und sofort verworfen – nichts wird gespeichert oder gesendet.
+- Gespeichert werden ausschließlich Zahlen: Blinzler pro Minute und Sekunden mit erkanntem Gesicht, lokal in `%APPDATA%\BlinkGuard\stats.db`.
+- Einstellungen liegen in `%APPDATA%\BlinkGuard\config.json`.
+
+## Technik
+
+- **Erkennung:** MediaPipe FaceMesh liefert 468 Gesichts-Landmarken; aus je 6 Punkten pro Auge wird die *Eye Aspect Ratio* (EAR) berechnet. Fällt sie kurz (≤ 0,5 s) unter den Schwellwert und steigt wieder, zählt das als Blinzler.
+- **Rate:** Blinzler in einem rollierenden 60-Sekunden-Fenster.
+- **UI:** PySide6 (Qt) – Tray-Icon, Einstellungs-Dialog, Statistik-Fenster mit selbst gezeichnetem Diagramm.
+- **Ressourcen:** Die Kamera wird mit ~15 fps bei 640×480 ausgelesen, um die CPU zu schonen.
