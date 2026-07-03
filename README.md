@@ -68,7 +68,7 @@ Danach liegt die fertige App unter `dist\BlinkGuard\BlinkGuard.exe`. Den ganzen 
 | Sofortwarnung ohne Blinzeln | an, 10 s | Warnt direkt, wenn so lange kein Blinzeln erkannt wurde |
 | Pause zwischen Warnungen | 3 min | Damit die Erinnerung nicht nervt |
 | Auge-zu-Schwellwert | 0.50 | Verringern, wenn Blinzler nicht erkannt werden; erhöhen bei Fehlzählungen |
-| Kamera-Index | 0 | Bei mehreren Kameras durchprobieren (0, 1, 2 …) |
+| Kamera | Systemstandard | Dropdown mit den Namen aller erkannten Kameras |
 | 20-20-20-Erinnerung | aus | Alle 20 min: 20 s auf etwas in ~6 m Entfernung schauen |
 | Autostart | aus | Startet BlinkGuard beim Windows-Login |
 

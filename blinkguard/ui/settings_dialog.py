@@ -3,6 +3,7 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -18,6 +19,16 @@ from PySide6.QtWidgets import (
 
 from blinkguard import autostart
 from blinkguard.config import Config
+
+
+def list_cameras() -> list[str]:
+    """Namen der angeschlossenen Kameras (Reihenfolge = OpenCV-Index)."""
+    try:
+        from PySide6.QtMultimedia import QMediaDevices
+
+        return [device.description() for device in QMediaDevices.videoInputs()]
+    except Exception:
+        return []
 
 
 class SettingsDialog(QDialog):
@@ -91,8 +102,8 @@ class SettingsDialog(QDialog):
         detect_layout = QFormLayout(detect_box)
 
         self.slider_sensitivity = QSlider(Qt.Horizontal)
-        # Auge-zu-Schwellwert 0.30–0.70, als Slider-Wert ×100
-        self.slider_sensitivity.setRange(30, 70)
+        # Auge-zu-Schwellwert 0.15–0.70, als Slider-Wert ×100
+        self.slider_sensitivity.setRange(15, 70)
         self.sensitivity_label = QLabel()
         self.slider_sensitivity.valueChanged.connect(
             lambda v: self.sensitivity_label.setText(f"{v / 100:.2f}")
@@ -108,9 +119,15 @@ class SettingsDialog(QDialog):
             )
         )
 
-        self.spin_camera = QSpinBox()
-        self.spin_camera.setRange(0, 9)
-        detect_layout.addRow("Kamera-Index:", self.spin_camera)
+        self.combo_camera = QComboBox()
+        camera_names = list_cameras()
+        if camera_names:
+            for i, name in enumerate(camera_names):
+                self.combo_camera.addItem(name, userData=i)
+        else:
+            for i in range(5):
+                self.combo_camera.addItem(f"Kamera {i}", userData=i)
+        detect_layout.addRow("Kamera:", self.combo_camera)
         layout.addWidget(detect_box)
 
         # --- Extras ---------------------------------------------------------
@@ -150,7 +167,14 @@ class SettingsDialog(QDialog):
         self.spin_cooldown.setValue(max(1, int(cfg.get("warn_cooldown_s")) // 60))
         self.slider_sensitivity.setValue(round(float(cfg.get("blink_threshold")) * 100))
         self.sensitivity_label.setText(f"{cfg.get('blink_threshold'):.2f}")
-        self.spin_camera.setValue(int(cfg.get("camera_index")))
+        saved_camera = int(cfg.get("camera_index"))
+        pos = self.combo_camera.findData(saved_camera)
+        if pos < 0:  # gespeicherte Kamera aktuell nicht angeschlossen
+            self.combo_camera.addItem(
+                f"Kamera {saved_camera} (nicht gefunden)", userData=saved_camera
+            )
+            pos = self.combo_camera.count() - 1
+        self.combo_camera.setCurrentIndex(pos)
         self.check_rule.setChecked(cfg.get("rule_20_20_20"))
         self.check_autostart.setChecked(autostart.is_enabled())
 
@@ -165,7 +189,7 @@ class SettingsDialog(QDialog):
             "no_blink_seconds": self.spin_no_blink.value(),
             "warn_cooldown_s": self.spin_cooldown.value() * 60,
             "blink_threshold": self.slider_sensitivity.value() / 100.0,
-            "camera_index": self.spin_camera.value(),
+            "camera_index": self.combo_camera.currentData(),
             "rule_20_20_20": self.check_rule.isChecked(),
             "autostart": self.check_autostart.isChecked(),
         }

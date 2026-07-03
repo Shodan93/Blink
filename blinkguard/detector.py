@@ -26,7 +26,7 @@ MODEL_URL = (
     "face_landmarker/float16/1/face_landmarker.task"
 )
 
-TARGET_FPS = 15
+TARGET_FPS = 20
 RATE_WINDOW_S = 60.0
 # Ein Blinzeln dauert 100-400 ms; alles was länger geschlossen ist (z.B.
 # Wegschauen nach unten) zählt nicht als Blinzler.

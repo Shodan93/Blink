@@ -15,8 +15,8 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QLinearGradient, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
-AURA_COLOR = QColor(30, 120, 255)  # kräftiges Blau
-EDGE_ALPHA = 190                   # Deckkraft direkt am Rand
+AURA_COLOR = QColor(15, 70, 170)   # dunkleres Blau
+EDGE_ALPHA = 95                    # Deckkraft direkt am Rand (dezent)
 DEPTH_RATIO = 0.20                 # wie weit das Glühen in den Bildschirm fadet
 
 
