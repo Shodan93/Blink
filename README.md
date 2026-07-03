@@ -16,7 +16,13 @@ Eine kleine Windows-Tray-App, die per Webcam misst, **wie oft du blinzelst** –
 - **Live-Panel im Statistik-Fenster** – jeder erkannte Blinzler blitzt sofort auf (mit Sitzungszähler und Uhrzeit), daneben der Anwesenheitsstatus (● Aktiv / ○ Abwesend / ⏸ Pausiert) und der laufende Auge-zu-Score mit Schwellwert – ideal, um die Erkennung zu prüfen und die Empfindlichkeit zu justieren. Abwesenheit wird automatisch erkannt: ohne Gesicht wird nichts gezählt und nie gewarnt
 - **Extras**: Autostart mit Windows, Pause-Button im Tray-Menü (z. B. für Videocalls), 20-20-20-Erinnerung, einstellbare Empfindlichkeit und Warnschwelle
 
-## Schnellstart (aus dem Quellcode)
+## Installation (empfohlen): fertige App herunterladen
+
+Auf der [Releases-Seite](https://github.com/Shodan93/Blink/releases) das aktuelle `BlinkGuard-windows.zip` herunterladen, entpacken und `BlinkGuard.exe` starten – fertig, kein Python nötig. Alle Abhängigkeiten sind im ZIP enthalten (gebaut von GitHub Actions, siehe `.github/workflows/release.yml`).
+
+Alternativ aus dem Quellcode: einfach `install.bat` doppelklicken – das Skript legt eine venv an, lädt alle Abhängigkeiten und baut die Exe nach `dist\BlinkGuard\`.
+
+## Schnellstart (aus dem Quellcode, manuell)
 
 Voraussetzung: **Python 3.10 oder neuer** (64-bit, getestet bis 3.14) von [python.org](https://www.python.org/downloads/).
 
