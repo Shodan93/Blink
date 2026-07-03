@@ -45,6 +45,7 @@ class BlinkGuardApp:
         self.last_warning_ts = 0.0
         self.detection_started_ts = time.monotonic()
         self.current_rate = 0.0
+        self.session_blinks = 0
 
         # --- Tray -------------------------------------------------------
         self.icons = {
@@ -106,12 +107,14 @@ class BlinkGuardApp:
     # --- Signale aus dem Kamera-Thread ------------------------------------
     def _on_blink(self, _ts: float):
         self.accumulator.add_blink()
+        self.session_blinks += 1
+        self.stats_window.on_blink(self.session_blinks)
 
-    def _on_tick(self, rate: float, face_present: bool, face_ratio: float):
+    def _on_tick(self, rate: float, face_present: bool, face_ratio: float, score: float):
         self.current_rate = rate
         self._recent_face = face_present
         self.accumulator.add_face_second(face_present)
-        self.stats_window.set_live_rate(rate)
+        self.stats_window.set_live(rate, face_present, score, self.paused)
 
         if self.paused or self.camera_failed:
             return
@@ -194,6 +197,7 @@ class BlinkGuardApp:
     def toggle_pause(self):
         self.paused = not self.paused
         self.detector.set_paused(self.paused)
+        self.stats_window.set_live(0.0, False, 0.0, self.paused)
         if self.paused:
             self.accumulator.flush()
             self.action_pause.setText("Erkennung fortsetzen")

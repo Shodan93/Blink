@@ -13,6 +13,7 @@ Eine kleine Windows-Tray-App, die per Webcam misst, **wie oft du blinzelst** –
   - *Nur Statistik* – misst nur, warnt nie
 - **Warnkanäle frei kombinierbar**: Windows-Benachrichtigung, dezentes Bildschirm-Overlay, Hinweiston
 - **Statistik mit Tagesverlauf** – aktuelle Rate, Blinzler heute, Ø-Rate, aktive Zeit und ein Balkendiagramm über den Tag (Speicherung lokal in SQLite, nur Zahlen pro Minute)
+- **Live-Panel im Statistik-Fenster** – jeder erkannte Blinzler blitzt sofort auf (mit Sitzungszähler und Uhrzeit), daneben der Anwesenheitsstatus (● Aktiv / ○ Abwesend / ⏸ Pausiert) und der laufende Auge-zu-Score mit Schwellwert – ideal, um die Erkennung zu prüfen und die Empfindlichkeit zu justieren. Abwesenheit wird automatisch erkannt: ohne Gesicht wird nichts gezählt und nie gewarnt
 - **Extras**: Autostart mit Windows, Pause-Button im Tray-Menü (z. B. für Videocalls), 20-20-20-Erinnerung, einstellbare Empfindlichkeit und Warnschwelle
 
 ## Schnellstart (aus dem Quellcode)

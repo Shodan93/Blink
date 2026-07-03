@@ -7,7 +7,10 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
     QLabel,
+    QProgressBar,
     QVBoxLayout,
     QWidget,
 )
@@ -135,6 +138,47 @@ class StatsWindow(QWidget):
         line.setFrameShape(QFrame.HLine)
         layout.addWidget(line)
 
+        # --- Live-Panel (Debug): jeder Blinzler sofort sichtbar ------------
+        live_box = QGroupBox("Live")
+        live_layout = QHBoxLayout(live_box)
+
+        self.status_label = QLabel("● startet …")
+        live_layout.addWidget(self.status_label)
+
+        self.blink_flash = QLabel("👁 Blinzler!")
+        self.blink_flash.setAlignment(Qt.AlignCenter)
+        self.blink_flash.setMinimumWidth(96)
+        self._flash_off_style = "color: #777777; padding: 2px 8px;"
+        self._flash_on_style = (
+            "background: #2e7d32; color: white; border-radius: 8px; padding: 2px 8px;"
+        )
+        self.blink_flash.setStyleSheet(self._flash_off_style)
+        live_layout.addWidget(self.blink_flash)
+
+        self.session_label = QLabel("Sitzung: 0")
+        self.session_label.setToolTip("Blinzler seit App-Start")
+        live_layout.addWidget(self.session_label)
+
+        self.last_blink_label = QLabel("zuletzt: –")
+        live_layout.addWidget(self.last_blink_label)
+
+        self.score_bar = QProgressBar()
+        self.score_bar.setRange(0, 100)
+        self.score_bar.setToolTip(
+            "Auge-zu-Score der Erkennung (0 = offen, 1 = geschlossen). "
+            "Übersteigt er kurz den Schwellwert, zählt ein Blinzler."
+        )
+        live_layout.addWidget(self.score_bar, stretch=1)
+
+        layout.addWidget(live_box)
+
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setSingleShot(True)
+        self._flash_timer.setInterval(350)
+        self._flash_timer.timeout.connect(
+            lambda: self.blink_flash.setStyleSheet(self._flash_off_style)
+        )
+
         layout.addWidget(QLabel("Blinzelrate im Tagesverlauf (Ø je 30 Minuten):"))
         self.chart = DayChart(store, lambda: self.config.get("rate_threshold"))
         layout.addWidget(self.chart, stretch=1)
@@ -152,10 +196,34 @@ class StatsWindow(QWidget):
         self._refresh_timer.setInterval(5000)
         self._refresh_timer.timeout.connect(self.refresh)
 
-    def set_live_rate(self, rate: float):
-        self._live_rate = rate
+    def on_blink(self, session_count: int):
+        """Vom Detector gemeldeter Blinzler – live anzeigen."""
+        self.session_label.setText(f"Sitzung: {session_count}")
+        self.last_blink_label.setText(datetime.now().strftime("zuletzt: %H:%M:%S"))
         if self.isVisible():
-            self.value_labels["rate"].setText(f"{rate:.0f}/min")
+            self.blink_flash.setStyleSheet(self._flash_on_style)
+            self._flash_timer.start()
+
+    def set_live(self, rate: float, face_present: bool, score: float, paused: bool):
+        """Sekündlicher Live-Status aus dem Kamera-Thread."""
+        self._live_rate = rate
+        if not self.isVisible():
+            return
+        self.value_labels["rate"].setText(f"{rate:.0f}/min")
+        if paused:
+            self.status_label.setText("⏸ Pausiert")
+            self.status_label.setStyleSheet("color: #9e9e9e; font-weight: bold;")
+        elif face_present:
+            self.status_label.setText("● Aktiv")
+            self.status_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
+        else:
+            self.status_label.setText("○ Abwesend")
+            self.status_label.setStyleSheet("color: #e65100; font-weight: bold;")
+        threshold = float(self.config.get("blink_threshold"))
+        self.score_bar.setValue(round(score * 100))
+        self.score_bar.setFormat(
+            f"Auge-zu: {score:.2f}  (Schwelle {threshold:.2f})"
+        )
 
     def refresh(self):
         total, active_min, avg = self.store.today_summary()

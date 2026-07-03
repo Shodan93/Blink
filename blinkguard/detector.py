@@ -64,7 +64,8 @@ class BlinkDetector(QThread):
     """Kamera-Thread. Signale werden im Qt-Hauptthread verarbeitet."""
 
     sig_blink = Signal(float)          # Zeitstempel eines erkannten Blinzlers
-    sig_tick = Signal(float, bool, float)  # (Rate/min, Gesicht sichtbar, Gesichts-Anteil 60s)
+    # (Rate/min, Gesicht sichtbar, Gesichts-Anteil 60s, aktueller Auge-zu-Score)
+    sig_tick = Signal(float, bool, float, float)
     sig_error = Signal(str)            # Kamera-/Erkennungsfehler (einmalig)
 
     def __init__(self, camera_index: int, blink_threshold: float, parent=None):
@@ -159,6 +160,7 @@ class BlinkDetector(QThread):
                 face_present = bool(result.face_landmarks)
                 face_samples.append((now, face_present))
 
+                score = 0.0
                 if face_present:
                     score = blink_score(result)
                     if not eyes_closed and score >= self.blink_threshold:
@@ -187,7 +189,7 @@ class BlinkDetector(QThread):
                     face_ratio = sum(1 for _, p in face_samples if p) / len(face_samples)
                     window = min(RATE_WINDOW_S, max(1.0, now - face_samples[0][0]))
                     rate = len(blink_times) * (60.0 / window)
-                    self.sig_tick.emit(rate, face_present, face_ratio)
+                    self.sig_tick.emit(rate, face_present, face_ratio, score)
 
                 # CPU schonen: auf Ziel-Framerate drosseln
                 elapsed = time.monotonic() - loop_start
