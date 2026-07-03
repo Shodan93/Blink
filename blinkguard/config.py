@@ -18,8 +18,8 @@ DEFAULTS = {
     "rate_threshold": 8,
     # Mindestabstand zwischen zwei Warnungen in Sekunden
     "warn_cooldown_s": 180,
-    # Empfindlichkeit der Erkennung: EAR-Schwellwert (kleiner = unempfindlicher)
-    "ear_threshold": 0.21,
+    # Auge-zu-Schwellwert für den eyeBlink-Score (0-1); kleiner = empfindlicher
+    "blink_threshold": 0.5,
     # Index der Webcam (0 = Standardkamera)
     "camera_index": 0,
     # App beim Windows-Login automatisch starten

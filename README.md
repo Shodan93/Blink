@@ -17,25 +17,28 @@ Eine kleine Windows-Tray-App, die per Webcam misst, **wie oft du blinzelst** –
 
 ## Schnellstart (aus dem Quellcode)
 
-Voraussetzung: **Python 3.10–3.12** (64-bit) von [python.org](https://www.python.org/downloads/) – MediaPipe unterstützt noch kein 3.13.
+Voraussetzung: **Python 3.10 oder neuer** (64-bit, getestet bis 3.14) von [python.org](https://www.python.org/downloads/).
 
-```bat
-git clone <dieses-repo>
-cd Blink
+In der **PowerShell** im Projektordner:
+
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python -m blinkguard
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m blinkguard
 ```
 
-Die App startet direkt in den Infobereich (Tray) unten rechts. Beim ersten Start fragt Windows ggf. nach der **Kamera-Berechtigung** – zulassen.
+(In der klassischen Eingabeaufforderung `cmd` heißt die Aktivierung `.venv\Scripts\activate`, in der PowerShell `.\.venv\Scripts\Activate.ps1` – die Befehle oben funktionieren aber auch ganz ohne Aktivierung.)
+
+Die App startet direkt in den Infobereich (Tray) unten rechts. Beim **ersten Start** lädt sie einmalig das Erkennungsmodell (~4 MB) herunter, und Windows fragt ggf. nach der **Kamera-Berechtigung** – zulassen.
 
 ## Als .exe bauen (ohne Python starten)
 
-```bat
-pip install pyinstaller
-build.bat
+```powershell
+.\.venv\Scripts\python.exe -m pip install pyinstaller
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --noconsole --name BlinkGuard --collect-all mediapipe blinkguard\__main__.py
 ```
+
+(oder nach Aktivierung der venv einfach `.\build.bat`)
 
 Danach liegt die fertige App unter `dist\BlinkGuard\BlinkGuard.exe`. Den ganzen `BlinkGuard`-Ordner kannst du beliebig verschieben; ein Doppelklick auf die Exe startet die App ohne Konsolenfenster.
 
@@ -55,7 +58,7 @@ Danach liegt die fertige App unter `dist\BlinkGuard\BlinkGuard.exe`. Den ganzen 
 | Warnkanäle | Benachrichtigung | Toast, Overlay und Ton beliebig kombinierbar |
 | Warnen unter | 8 Blinzler/min | Schwellwert für die Warnung |
 | Pause zwischen Warnungen | 3 min | Damit die Erinnerung nicht nervt |
-| Empfindlichkeit (EAR) | 0.21 | Erhöhen, wenn Blinzler nicht erkannt werden; verringern bei Fehlzählungen |
+| Auge-zu-Schwellwert | 0.50 | Verringern, wenn Blinzler nicht erkannt werden; erhöhen bei Fehlzählungen |
 | Kamera-Index | 0 | Bei mehreren Kameras durchprobieren (0, 1, 2 …) |
 | 20-20-20-Erinnerung | aus | Alle 20 min: 20 s auf etwas in ~6 m Entfernung schauen |
 | Autostart | aus | Startet BlinkGuard beim Windows-Login |
@@ -66,11 +69,11 @@ Gewarnt wird nur, wenn du auch wirklich vor dem Bildschirm sitzt (Gesicht in min
 
 - Die Kamerabilder werden **nur im Arbeitsspeicher** analysiert und sofort verworfen – nichts wird gespeichert oder gesendet.
 - Gespeichert werden ausschließlich Zahlen: Blinzler pro Minute und Sekunden mit erkanntem Gesicht, lokal in `%APPDATA%\BlinkGuard\stats.db`.
-- Einstellungen liegen in `%APPDATA%\BlinkGuard\config.json`.
+- Einstellungen liegen in `%APPDATA%\BlinkGuard\config.json`, das Erkennungsmodell in `%APPDATA%\BlinkGuard\models\`.
 
 ## Technik
 
-- **Erkennung:** MediaPipe FaceMesh liefert 468 Gesichts-Landmarken; aus je 6 Punkten pro Auge wird die *Eye Aspect Ratio* (EAR) berechnet. Fällt sie kurz (≤ 0,5 s) unter den Schwellwert und steigt wieder, zählt das als Blinzler.
+- **Erkennung:** Der MediaPipe-FaceLandmarker (Tasks-API) liefert neben 478 Gesichts-Landmarken auch *Blendshapes*, darunter `eyeBlinkLeft`/`eyeBlinkRight` – einen Score von 0 (Auge offen) bis 1 (geschlossen). Steigt der Mittelwert beider Augen kurz (≤ 0,5 s) über den Schwellwert und fällt wieder (mit Hysterese), zählt das als Blinzler.
 - **Rate:** Blinzler in einem rollierenden 60-Sekunden-Fenster.
 - **UI:** PySide6 (Qt) – Tray-Icon, Einstellungs-Dialog, Statistik-Fenster mit selbst gezeichnetem Diagramm.
 - **Ressourcen:** Die Kamera wird mit ~15 fps bei 640×480 ausgelesen, um die CPU zu schonen.

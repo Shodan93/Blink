@@ -66,8 +66,8 @@ class SettingsDialog(QDialog):
         detect_layout = QFormLayout(detect_box)
 
         self.slider_sensitivity = QSlider(Qt.Horizontal)
-        # EAR-Schwellwert 0.15–0.30, als Slider-Wert ×100
-        self.slider_sensitivity.setRange(15, 30)
+        # Auge-zu-Schwellwert 0.30–0.70, als Slider-Wert ×100
+        self.slider_sensitivity.setRange(30, 70)
         self.sensitivity_label = QLabel()
         self.slider_sensitivity.valueChanged.connect(
             lambda v: self.sensitivity_label.setText(f"{v / 100:.2f}")
@@ -75,12 +75,11 @@ class SettingsDialog(QDialog):
         sens_row = QHBoxLayout()
         sens_row.addWidget(self.slider_sensitivity)
         sens_row.addWidget(self.sensitivity_label)
-        detect_layout.addRow("Empfindlichkeit (EAR):", sens_row)
+        detect_layout.addRow("Auge-zu-Schwellwert:", sens_row)
         detect_layout.addRow(
             QLabel(
-                "<small>Höher = empfindlicher. Standard 0.21. Erhöhen, wenn "
-                "Blinzler nicht erkannt werden; verringern, wenn zu viele "
-                "gezählt werden.</small>"
+                "<small>Standard 0.50. Verringern, wenn Blinzler nicht erkannt "
+                "werden; erhöhen, wenn zu viele gezählt werden.</small>"
             )
         )
 
@@ -121,8 +120,8 @@ class SettingsDialog(QDialog):
         self.check_sound.setChecked(cfg.get("warn_sound"))
         self.spin_threshold.setValue(int(cfg.get("rate_threshold")))
         self.spin_cooldown.setValue(max(1, int(cfg.get("warn_cooldown_s")) // 60))
-        self.slider_sensitivity.setValue(round(float(cfg.get("ear_threshold")) * 100))
-        self.sensitivity_label.setText(f"{cfg.get('ear_threshold'):.2f}")
+        self.slider_sensitivity.setValue(round(float(cfg.get("blink_threshold")) * 100))
+        self.sensitivity_label.setText(f"{cfg.get('blink_threshold'):.2f}")
         self.spin_camera.setValue(int(cfg.get("camera_index")))
         self.check_rule.setChecked(cfg.get("rule_20_20_20"))
         self.check_autostart.setChecked(autostart.is_enabled())
@@ -135,7 +134,7 @@ class SettingsDialog(QDialog):
             "warn_sound": self.check_sound.isChecked(),
             "rate_threshold": self.spin_threshold.value(),
             "warn_cooldown_s": self.spin_cooldown.value() * 60,
-            "ear_threshold": self.slider_sensitivity.value() / 100.0,
+            "blink_threshold": self.slider_sensitivity.value() / 100.0,
             "camera_index": self.spin_camera.value(),
             "rule_20_20_20": self.check_rule.isChecked(),
             "autostart": self.check_autostart.isChecked(),

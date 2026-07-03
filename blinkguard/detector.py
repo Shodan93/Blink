@@ -1,39 +1,63 @@
 """Blinzelerkennung per Webcam.
 
-Läuft in einem eigenen QThread: liest Kamerabilder, ermittelt mit MediaPipe
-FaceMesh die Augen-Landmarken und erkennt Blinzler über die Eye Aspect Ratio
-(EAR). Ein Blinzler = EAR fällt kurz unter den Schwellwert und steigt wieder.
+Läuft in einem eigenen QThread: liest Kamerabilder und ermittelt mit dem
+MediaPipe-FaceLandmarker (Tasks-API) die "eyeBlink"-Blendshapes – einen von
+0 (Auge offen) bis 1 (Auge geschlossen) laufenden Score. Ein Blinzler =
+Score steigt kurz über den Schwellwert und fällt wieder darunter.
+
+Das Landmarker-Modell (~4 MB) wird beim ersten Start automatisch nach
+%APPDATA%/BlinkGuard/models heruntergeladen.
 """
 
 import time
+import urllib.request
 from collections import deque
 
 import cv2
 import mediapipe as mp
+from mediapipe.tasks import python as mp_tasks
+from mediapipe.tasks.python import vision as mp_vision
 from PySide6.QtCore import QThread, Signal
 
-# MediaPipe-FaceMesh-Landmarken je Auge: [außen, oben1, oben2, innen, unten2, unten1]
-RIGHT_EYE = [33, 160, 158, 133, 153, 144]
-LEFT_EYE = [362, 385, 387, 263, 373, 380]
+from blinkguard.config import data_dir
+
+MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+    "face_landmarker/float16/1/face_landmarker.task"
+)
 
 TARGET_FPS = 15
 RATE_WINDOW_S = 60.0
 # Ein Blinzeln dauert 100-400 ms; alles was länger geschlossen ist (z.B.
 # Wegschauen nach unten) zählt nicht als Blinzler.
 MAX_CLOSED_S = 0.5
+# Hysterese: "wieder offen" erst deutlich unter dem Zu-Schwellwert
+HYSTERESIS = 0.1
 
 
-def _dist(a, b) -> float:
-    return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
+def model_path():
+    return data_dir() / "models" / "face_landmarker.task"
 
 
-def eye_aspect_ratio(landmarks, idx) -> float:
-    p = [landmarks[i] for i in idx]
-    horizontal = _dist(p[0], p[3])
-    if horizontal <= 0.0:
-        return 0.0
-    vertical = _dist(p[1], p[5]) + _dist(p[2], p[4])
-    return vertical / (2.0 * horizontal)
+def ensure_model() -> str:
+    """Lädt das FaceLandmarker-Modell herunter, falls es noch fehlt."""
+    path = model_path()
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".download")
+        urllib.request.urlretrieve(MODEL_URL, tmp)
+        tmp.replace(path)
+    return str(path)
+
+
+def blink_score(result) -> float:
+    """Mittlerer eyeBlink-Score beider Augen (0 = offen, 1 = geschlossen)."""
+    scores = [
+        b.score
+        for b in result.face_blendshapes[0]
+        if b.category_name in ("eyeBlinkLeft", "eyeBlinkRight")
+    ]
+    return sum(scores) / len(scores) if scores else 0.0
 
 
 class BlinkDetector(QThread):
@@ -43,10 +67,10 @@ class BlinkDetector(QThread):
     sig_tick = Signal(float, bool, float)  # (Rate/min, Gesicht sichtbar, Gesichts-Anteil 60s)
     sig_error = Signal(str)            # Kamera-/Erkennungsfehler (einmalig)
 
-    def __init__(self, camera_index: int, ear_threshold: float, parent=None):
+    def __init__(self, camera_index: int, blink_threshold: float, parent=None):
         super().__init__(parent)
         self.camera_index = camera_index
-        self.ear_threshold = ear_threshold
+        self.blink_threshold = blink_threshold
         self._running = True
         self._paused = False
 
@@ -57,11 +81,20 @@ class BlinkDetector(QThread):
     def set_paused(self, paused: bool):
         self._paused = paused
 
-    def set_ear_threshold(self, value: float):
-        self.ear_threshold = value
+    def set_blink_threshold(self, value: float):
+        self.blink_threshold = value
 
     # --- Thread-Hauptschleife ----------------------------------------------
     def run(self):
+        try:
+            model_file = ensure_model()
+        except OSError as exc:
+            self.sig_error.emit(
+                "Das Erkennungsmodell konnte nicht heruntergeladen werden "
+                f"(einmalig ~4 MB, Internet nötig): {exc}"
+            )
+            return
+
         cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW if hasattr(cv2, "CAP_DSHOW") else 0)
         if not cap.isOpened():
             # CAP_DSHOW kann auf manchen Systemen scheitern -> Standard-Backend
@@ -76,17 +109,23 @@ class BlinkDetector(QThread):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-        face_mesh = mp.solutions.face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=False,
-            min_detection_confidence=0.5,
+        options = mp_vision.FaceLandmarkerOptions(
+            base_options=mp_tasks.BaseOptions(model_asset_path=model_file),
+            running_mode=mp_vision.RunningMode.VIDEO,
+            num_faces=1,
+            output_face_blendshapes=True,
+            min_face_detection_confidence=0.5,
             min_tracking_confidence=0.5,
         )
+        landmarker = mp_vision.FaceLandmarker.create_from_options(options)
 
         blink_times = deque()        # Zeitstempel der Blinzler (letzte 60 s)
         face_samples = deque()       # (Zeitstempel, Gesicht sichtbar?)
-        closed_since = None          # Beginn der aktuellen Augen-geschlossen-Phase
+        closed_since = None          # Beginn der aktuellen Augen-zu-Phase
+        eyes_closed = False
         last_tick = 0.0
+        start = time.monotonic()
+        last_ts_ms = -1
         frame_interval = 1.0 / TARGET_FPS
 
         try:
@@ -97,6 +136,7 @@ class BlinkDetector(QThread):
                     blink_times.clear()
                     face_samples.clear()
                     closed_since = None
+                    eyes_closed = False
                     time.sleep(0.2)
                     continue
 
@@ -110,29 +150,29 @@ class BlinkDetector(QThread):
                     return
 
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                result = face_mesh.process(rgb)
+                image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                # detect_for_video verlangt streng steigende Zeitstempel
+                ts_ms = max(int((now - start) * 1000), last_ts_ms + 1)
+                last_ts_ms = ts_ms
+                result = landmarker.detect_for_video(image, ts_ms)
 
-                face_present = bool(result.multi_face_landmarks)
+                face_present = bool(result.face_landmarks)
                 face_samples.append((now, face_present))
 
                 if face_present:
-                    landmarks = result.multi_face_landmarks[0].landmark
-                    ear = (
-                        eye_aspect_ratio(landmarks, LEFT_EYE)
-                        + eye_aspect_ratio(landmarks, RIGHT_EYE)
-                    ) / 2.0
-
-                    if ear < self.ear_threshold:
-                        if closed_since is None:
-                            closed_since = now
-                    else:
-                        if closed_since is not None:
-                            if (now - closed_since) <= MAX_CLOSED_S:
-                                blink_times.append(now)
-                                self.sig_blink.emit(time.time())
-                            closed_since = None
+                    score = blink_score(result)
+                    if not eyes_closed and score >= self.blink_threshold:
+                        eyes_closed = True
+                        closed_since = now
+                    elif eyes_closed and score < self.blink_threshold - HYSTERESIS:
+                        eyes_closed = False
+                        if closed_since is not None and (now - closed_since) <= MAX_CLOSED_S:
+                            blink_times.append(now)
+                            self.sig_blink.emit(time.time())
+                        closed_since = None
                 else:
                     closed_since = None
+                    eyes_closed = False
 
                 # Rollierendes 60-Sekunden-Fenster pflegen
                 cutoff = now - RATE_WINDOW_S
@@ -144,11 +184,8 @@ class BlinkDetector(QThread):
                 # Einmal pro Sekunde Status an den Hauptthread melden
                 if now - last_tick >= 1.0:
                     last_tick = now
-                    if face_samples:
-                        face_ratio = sum(1 for _, p in face_samples if p) / len(face_samples)
-                    else:
-                        face_ratio = 0.0
-                    window = min(RATE_WINDOW_S, max(1.0, now - face_samples[0][0]) if face_samples else 1.0)
+                    face_ratio = sum(1 for _, p in face_samples if p) / len(face_samples)
+                    window = min(RATE_WINDOW_S, max(1.0, now - face_samples[0][0]))
                     rate = len(blink_times) * (60.0 / window)
                     self.sig_tick.emit(rate, face_present, face_ratio)
 
@@ -157,5 +194,5 @@ class BlinkDetector(QThread):
                 if elapsed < frame_interval:
                     time.sleep(frame_interval - elapsed)
         finally:
-            face_mesh.close()
+            landmarker.close()
             cap.release()

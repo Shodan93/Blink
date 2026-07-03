@@ -81,7 +81,7 @@ class BlinkGuardApp:
         # --- Erkennungs-Thread -------------------------------------------
         self.detector = BlinkDetector(
             camera_index=int(self.config.get("camera_index")),
-            ear_threshold=float(self.config.get("ear_threshold")),
+            blink_threshold=float(self.config.get("blink_threshold")),
         )
         self.detector.sig_blink.connect(self._on_blink)
         self.detector.sig_tick.connect(self._on_tick)
@@ -170,7 +170,7 @@ class BlinkGuardApp:
         restart_camera = values["camera_index"] != self.config.get("camera_index")
         self.config.update(values)
 
-        self.detector.set_ear_threshold(float(values["ear_threshold"]))
+        self.detector.set_blink_threshold(float(values["blink_threshold"]))
 
         if values["rule_20_20_20"]:
             if not self.rule_timer.isActive():
@@ -211,7 +211,7 @@ class BlinkGuardApp:
         self.detection_started_ts = time.monotonic()
         self.detector = BlinkDetector(
             camera_index=int(self.config.get("camera_index")),
-            ear_threshold=float(self.config.get("ear_threshold")),
+            blink_threshold=float(self.config.get("blink_threshold")),
         )
         self.detector.sig_blink.connect(self._on_blink)
         self.detector.sig_tick.connect(self._on_tick)
