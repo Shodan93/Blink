@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release-Tag (z.B. v1.1.0); wird angelegt, falls er fehlt"
+        required: true
+        default: "v1.1.0"
 
 jobs:
   build-windows:
@@ -35,10 +40,10 @@ jobs:
           path: BlinkGuard-windows.zip
 
       - name: GitHub-Release erstellen
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          name: BlinkGuard ${{ github.ref_name }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: BlinkGuard ${{ inputs.tag || github.ref_name }}
           files: BlinkGuard-windows.zip
           body: |
             Fertig gebaute Windows-App – kein Python nötig.
