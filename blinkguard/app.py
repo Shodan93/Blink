@@ -166,6 +166,7 @@ class BlinkGuardApp:
 
     def show_settings(self):
         dialog = SettingsDialog(self.config)
+        dialog.test_requested.connect(self.notifier.test_warning)
         if not dialog.exec():
             return
         values = dialog.values()

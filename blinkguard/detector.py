@@ -85,6 +85,17 @@ class BlinkDetector(QThread):
     def set_blink_threshold(self, value: float):
         self.blink_threshold = value
 
+    def _open_capture(self):
+        cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW if hasattr(cv2, "CAP_DSHOW") else 0)
+        if not cap.isOpened():
+            # CAP_DSHOW kann auf manchen Systemen scheitern -> Standard-Backend
+            cap = cv2.VideoCapture(self.camera_index)
+        if not cap.isOpened():
+            return None
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        return cap
+
     # --- Thread-Hauptschleife ----------------------------------------------
     def run(self):
         try:
@@ -96,19 +107,13 @@ class BlinkDetector(QThread):
             )
             return
 
-        cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW if hasattr(cv2, "CAP_DSHOW") else 0)
-        if not cap.isOpened():
-            # CAP_DSHOW kann auf manchen Systemen scheitern -> Standard-Backend
-            cap = cv2.VideoCapture(self.camera_index)
-        if not cap.isOpened():
+        cap = self._open_capture()
+        if cap is None:
             self.sig_error.emit(
                 f"Kamera {self.camera_index} konnte nicht geöffnet werden. "
                 "Prüfe die Kameraauswahl in den Einstellungen."
             )
             return
-
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
         options = mp_vision.FaceLandmarkerOptions(
             base_options=mp_tasks.BaseOptions(model_asset_path=model_file),
@@ -134,12 +139,26 @@ class BlinkDetector(QThread):
                 loop_start = time.monotonic()
 
                 if self._paused:
+                    # Kamera komplett freigeben: LED aus, andere Apps (z.B.
+                    # Videocalls) können sie nutzen
+                    if cap is not None:
+                        cap.release()
+                        cap = None
                     blink_times.clear()
                     face_samples.clear()
                     closed_since = None
                     eyes_closed = False
                     time.sleep(0.2)
                     continue
+
+                if cap is None:  # nach Pause wieder öffnen
+                    cap = self._open_capture()
+                    if cap is None:
+                        self.sig_error.emit(
+                            f"Kamera {self.camera_index} konnte nach der Pause "
+                            "nicht wieder geöffnet werden."
+                        )
+                        return
 
                 ok, frame = cap.read()
                 now = time.monotonic()
@@ -197,4 +216,5 @@ class BlinkDetector(QThread):
                     time.sleep(frame_interval - elapsed)
         finally:
             landmarker.close()
-            cap.release()
+            if cap is not None:
+                cap.release()

@@ -56,6 +56,7 @@ class OverlayWarning(QWidget):
 
         self.setWindowOpacity(0.0)
         self.show()
+        self.raise_()
         self._fade(0.0, 1.0)
         self._hide_timer.start(SHOW_MS)
 

@@ -1,6 +1,7 @@
 """Auslösen der Blinzelwarnung über die konfigurierten Kanäle."""
 
 import sys
+import threading
 
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
@@ -20,12 +21,23 @@ RULE_TEXT = (
 
 
 def _play_sound():
-    if sys.platform == "win32":
-        import winsound
+    """Sanfter Zweiklang. winsound.Beep erzeugt den Ton selbst und ist damit
+    unabhängig vom Windows-Soundschema (MessageBeep ist bei stillem Schema
+    lautlos). Läuft im Hintergrund-Thread, da Beep blockiert."""
 
-        winsound.MessageBeep(winsound.MB_ICONASTERISK)
-    else:
-        QApplication.beep()
+    def _run():
+        try:
+            if sys.platform == "win32":
+                import winsound
+
+                winsound.Beep(740, 140)
+                winsound.Beep(988, 200)
+            else:
+                QApplication.beep()
+        except Exception:
+            QApplication.beep()
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 class Notifier:
@@ -41,6 +53,24 @@ class Notifier:
         if self.config.get("warn_overlay"):
             self.overlay.show_message("Blinzeln nicht vergessen! 👁")
         if self.config.get("warn_sound"):
+            _play_sound()
+
+    def test_warning(self, channels: dict):
+        """Warnung sofort auslösen – für den Test-Button in den Einstellungen.
+
+        Nutzt die im Dialog gerade ausgewählten Kanäle, nicht die
+        gespeicherte Konfiguration.
+        """
+        if channels.get("warn_toast"):
+            self.tray.showMessage(
+                WARN_TITLE,
+                "Testwarnung – so sieht die Blinzelerinnerung aus.",
+                QSystemTrayIcon.Information,
+                6000,
+            )
+        if channels.get("warn_overlay"):
+            self.overlay.show_message("Testwarnung – Blinzeln nicht vergessen! 👁")
+        if channels.get("warn_sound"):
             _play_sound()
 
     def remind_20_20_20(self):

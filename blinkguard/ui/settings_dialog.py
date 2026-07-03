@@ -1,6 +1,6 @@
 """Einstellungs-Dialog: Modus, Warnkanäle, Schwellwerte, Autostart."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QRadioButton,
     QSlider,
     QSpinBox,
@@ -20,6 +21,9 @@ from blinkguard.config import Config
 
 
 class SettingsDialog(QDialog):
+    # Feuert die aktuell im Dialog ausgewählten Werte für einen Warn-Test
+    test_requested = Signal(dict)
+
     def __init__(self, config: Config, parent=None):
         super().__init__(parent)
         self.config = config
@@ -57,6 +61,15 @@ class SettingsDialog(QDialog):
         self.spin_cooldown.setRange(1, 30)
         self.spin_cooldown.setSuffix(" min")
         warn_layout.addRow("Pause zwischen Warnungen:", self.spin_cooldown)
+
+        self.button_test = QPushButton("Warnung jetzt testen")
+        self.button_test.setToolTip(
+            "Löst die Warnung sofort über die oben angehakten Kanäle aus."
+        )
+        self.button_test.clicked.connect(
+            lambda: self.test_requested.emit(self.values())
+        )
+        warn_layout.addRow(self.button_test)
 
         layout.addWidget(self.warn_box)
         self.radio_warn.toggled.connect(self.warn_box.setEnabled)
