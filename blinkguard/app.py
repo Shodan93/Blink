@@ -47,6 +47,13 @@ class BlinkGuardApp:
         self.detection_started_ts = time.monotonic()
         self.current_rate = 0.0
         self.session_blinks = 0
+        # Haltung
+        self._posture_bad_since = None
+        self._posture_last_warn = 0.0
+        self._calibration_samples = None  # list = Kalibrierung läuft
+        # Bewegungs-Erinnerung
+        self._present_s = 0
+        self._absent_s = 0
 
         # --- Tray -------------------------------------------------------
         self.app.setWindowIcon(app_icon())
@@ -85,6 +92,7 @@ class BlinkGuardApp:
         self.stats_window.setWindowIcon(app_icon())
         self.stats_window.sig_settings.connect(self.show_settings)
         self.stats_window.sig_pause.connect(self.toggle_pause)
+        self.stats_window.sig_calibrate.connect(self.start_posture_calibration)
         self.notifier = Notifier(self.tray, self.config)
 
         # --- Erkennungs-Thread -------------------------------------------
@@ -94,6 +102,7 @@ class BlinkGuardApp:
         )
         self.detector.sig_blink.connect(self._on_blink)
         self.detector.sig_tick.connect(self._on_tick)
+        self.detector.sig_posture.connect(self._on_posture)
         self.detector.sig_error.connect(self._on_camera_error)
         self.detector.start()
 
@@ -126,6 +135,23 @@ class BlinkGuardApp:
 
         if self.paused or self.camera_failed:
             return
+
+        # Bewegungs-Erinnerung: durchgehende Sitzzeit zählen; erst eine
+        # Abwesenheit von 3 Minuten gilt als echte Pause
+        if face_present:
+            self._present_s += 1 + self._absent_s  # kurze Lücken zählen mit
+            self._absent_s = 0
+        else:
+            self._absent_s += 1
+            if self._absent_s >= 180:
+                self._present_s = 0
+        self.stats_window.set_sitting_minutes(self._present_s // 60)
+        if (
+            self.config.get("move_enabled")
+            and self._present_s >= int(self.config.get("move_minutes")) * 60
+        ):
+            self._present_s = 0
+            self.notifier.remind_move(int(self.config.get("move_minutes")))
 
         threshold = float(self.config.get("rate_threshold"))
         warn_mode = self.config.get("mode") == "warn"
@@ -162,6 +188,91 @@ class BlinkGuardApp:
             self.tray.setToolTip(f"{APP_NAME} – {rate:.0f} Blinzler/min")
         else:
             self.tray.setToolTip(f"{APP_NAME} – kein Gesicht erkannt")
+
+    # --- Haltung (Posture) ---------------------------------------------------
+    def start_posture_calibration(self):
+        """Einige Sekunden Metriken sammeln und als Referenzhaltung speichern."""
+        self._calibration_samples = []
+        self._calibration_started = time.monotonic()
+        self.stats_window.set_posture("Kalibriere … bitte gerade sitzen bleiben", None)
+
+    def _on_posture(self, m: dict):
+        # Kalibrierung läuft?
+        if self._calibration_samples is not None:
+            if m["valid"]:
+                self._calibration_samples.append(m)
+            if len(self._calibration_samples) >= 3:
+                samples = self._calibration_samples
+                self._calibration_samples = None
+                baseline = {
+                    key: sum(s[key] for s in samples) / len(samples)
+                    for key in ("eye_dist", "face_y", "head_roll", "shoulder_tilt", "shoulder_y")
+                }
+                self.config.set("posture_baseline", baseline)
+                self.config.set("posture_enabled", True)
+                self.config.save()
+                self.tray.showMessage(
+                    APP_NAME,
+                    "Referenzhaltung gespeichert – Haltungsüberwachung ist aktiv.",
+                    QSystemTrayIcon.Information,
+                    5000,
+                )
+            elif time.monotonic() - self._calibration_started > 10.0:
+                self._calibration_samples = None
+                self.stats_window.set_posture(
+                    "Kalibrierung fehlgeschlagen – Gesicht und Schultern "
+                    "müssen im Bild sein (mehr Abstand zur Kamera?)",
+                    False,
+                )
+                return
+            else:
+                return
+
+        baseline = self.config.get("posture_baseline")
+        enabled = self.config.get("posture_enabled") and baseline
+        if not enabled:
+            self.stats_window.set_posture("Nicht kalibriert", None)
+            return
+        if self.paused or not m["valid"]:
+            self._posture_bad_since = None
+            self.stats_window.set_posture("–", None)
+            return
+
+        issues = []
+        if abs(m["shoulder_tilt"] - baseline["shoulder_tilt"]) > float(
+            self.config.get("posture_tol_shoulder_deg")
+        ):
+            issues.append("Schultern ungleich hoch")
+        if abs(m["head_roll"] - baseline["head_roll"]) > float(
+            self.config.get("posture_tol_head_deg")
+        ):
+            issues.append("Kopf geneigt")
+        if m["eye_dist"] > baseline["eye_dist"] * (
+            1.0 + float(self.config.get("posture_tol_near_pct")) / 100.0
+        ):
+            issues.append("zu nah am Bildschirm")
+        slump = float(self.config.get("posture_tol_slump_pct")) / 100.0
+        if (m["face_y"] - baseline["face_y"]) > slump or (
+            m["shoulder_y"] - baseline["shoulder_y"]
+        ) > slump:
+            issues.append("eingesunken")
+
+        now = time.monotonic()
+        if issues:
+            text = ", ".join(issues)
+            self.stats_window.set_posture("⚠ " + text, False)
+            if self._posture_bad_since is None:
+                self._posture_bad_since = now
+            elif (
+                self.config.get("mode") == "warn"
+                and (now - self._posture_bad_since) >= float(self.config.get("posture_grace_s"))
+                and (now - self._posture_last_warn) >= float(self.config.get("posture_cooldown_s"))
+            ):
+                self._posture_last_warn = now
+                self.notifier.warn_posture(text)
+        else:
+            self._posture_bad_since = None
+            self.stats_window.set_posture("✓ Haltung gut", True)
 
     def _on_camera_error(self, message: str):
         self.camera_failed = True
@@ -221,6 +332,9 @@ class BlinkGuardApp:
         self.stats_window.set_live(0.0, False, 0.0, paused=self.paused)
         if self.paused:
             self.accumulator.flush()
+            self._present_s = 0
+            self._absent_s = 0
+            self._posture_bad_since = None
             self.action_pause.setText("Erkennung fortsetzen")
             self._set_tray_state("paused")
             self.tray.setToolTip(f"{APP_NAME} – pausiert")

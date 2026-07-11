@@ -9,6 +9,7 @@ Das Landmarker-Modell (~4 MB) wird beim ersten Start automatisch nach
 %APPDATA%/BlinkGuard/models heruntergeladen.
 """
 
+import math
 import time
 import urllib.request
 from collections import deque
@@ -21,12 +22,19 @@ from PySide6.QtCore import QThread, Signal
 
 from blinkguard.config import data_dir
 
-MODEL_URL = (
-    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
-    "face_landmarker/float16/1/face_landmarker.task"
-)
+_MODEL_BASE = "https://storage.googleapis.com/mediapipe-models"
+MODELS = {
+    "face_landmarker.task": (
+        f"{_MODEL_BASE}/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+    ),
+    "pose_landmarker_lite.task": (
+        f"{_MODEL_BASE}/pose_landmarker/pose_landmarker_lite/float16/1/"
+        "pose_landmarker_lite.task"
+    ),
+}
 
 TARGET_FPS = 20
+POSE_EVERY_N = 4     # Haltung ändert sich langsam -> nur jeden 4. Frame (5/s)
 RATE_WINDOW_S = 60.0
 # Ein Blinzeln dauert 100-400 ms; alles was länger geschlossen ist (z.B.
 # Wegschauen nach unten) zählt nicht als Blinzler.
@@ -34,18 +42,22 @@ MAX_CLOSED_S = 0.5
 # Hysterese: "wieder offen" erst deutlich unter dem Zu-Schwellwert
 HYSTERESIS = 0.1
 
+# Gesichts-Landmarken für die Haltungs-Metriken
+FACE_RIGHT_EYE_OUTER = 33
+FACE_LEFT_EYE_OUTER = 263
+FACE_NOSE_TIP = 1
+# Pose-Landmarken
+POSE_LEFT_SHOULDER = 11
+POSE_RIGHT_SHOULDER = 12
 
-def model_path():
-    return data_dir() / "models" / "face_landmarker.task"
 
-
-def ensure_model() -> str:
-    """Lädt das FaceLandmarker-Modell herunter, falls es noch fehlt."""
-    path = model_path()
+def ensure_model(filename: str) -> str:
+    """Lädt ein MediaPipe-Modell herunter, falls es noch fehlt."""
+    path = data_dir() / "models" / filename
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".download")
-        urllib.request.urlretrieve(MODEL_URL, tmp)
+        urllib.request.urlretrieve(MODELS[filename], tmp)
         tmp.replace(path)
     return str(path)
 
@@ -66,6 +78,7 @@ class BlinkDetector(QThread):
     sig_blink = Signal(float)          # Zeitstempel eines erkannten Blinzlers
     # (Rate/min, Gesicht sichtbar, Gesichts-Anteil 60s, Sekunden ohne Blinzeln)
     sig_tick = Signal(float, bool, float, float)
+    sig_posture = Signal(dict)         # Haltungs-Metriken, 1x pro Sekunde
     sig_error = Signal(str)            # Kamera-/Erkennungsfehler (einmalig)
 
     def __init__(self, camera_index: int, blink_threshold: float, parent=None):
@@ -99,11 +112,12 @@ class BlinkDetector(QThread):
     # --- Thread-Hauptschleife ----------------------------------------------
     def run(self):
         try:
-            model_file = ensure_model()
+            face_model = ensure_model("face_landmarker.task")
+            pose_model = ensure_model("pose_landmarker_lite.task")
         except OSError as exc:
             self.sig_error.emit(
-                "Das Erkennungsmodell konnte nicht heruntergeladen werden "
-                f"(einmalig ~4 MB, Internet nötig): {exc}"
+                "Die Erkennungsmodelle konnten nicht heruntergeladen werden "
+                f"(einmalig ~10 MB, Internet nötig): {exc}"
             )
             return
 
@@ -116,7 +130,7 @@ class BlinkDetector(QThread):
             return
 
         options = mp_vision.FaceLandmarkerOptions(
-            base_options=mp_tasks.BaseOptions(model_asset_path=model_file),
+            base_options=mp_tasks.BaseOptions(model_asset_path=face_model),
             running_mode=mp_vision.RunningMode.VIDEO,
             num_faces=1,
             output_face_blendshapes=True,
@@ -124,6 +138,13 @@ class BlinkDetector(QThread):
             min_tracking_confidence=0.5,
         )
         landmarker = mp_vision.FaceLandmarker.create_from_options(options)
+
+        pose_options = mp_vision.PoseLandmarkerOptions(
+            base_options=mp_tasks.BaseOptions(model_asset_path=pose_model),
+            running_mode=mp_vision.RunningMode.VIDEO,
+            num_poses=1,
+        )
+        pose_landmarker = mp_vision.PoseLandmarker.create_from_options(pose_options)
 
         blink_times = deque()        # Zeitstempel der Blinzler (letzte 60 s)
         face_samples = deque()       # (Zeitstempel, Gesicht sichtbar?)
@@ -134,6 +155,10 @@ class BlinkDetector(QThread):
         start = time.monotonic()
         last_ts_ms = -1
         frame_interval = 1.0 / TARGET_FPS
+        frame_no = 0
+        face_metrics = None          # (eye_dist, face_y, head_roll)
+        pose_metrics = None          # (shoulder_tilt, shoulder_y)
+        pose_seen_at = 0.0
 
         try:
             while self._running:
@@ -150,6 +175,8 @@ class BlinkDetector(QThread):
                     closed_since = None
                     eyes_closed = False
                     blink_marker = None
+                    face_metrics = None
+                    pose_metrics = None
                     time.sleep(0.2)
                     continue
 
@@ -185,6 +212,13 @@ class BlinkDetector(QThread):
                     if blink_marker is None:
                         # Gesicht (wieder) da: Ohne-Blinzeln-Uhr neu starten
                         blink_marker = now
+                    lm = result.face_landmarks[0]
+                    r_eye, l_eye = lm[FACE_RIGHT_EYE_OUTER], lm[FACE_LEFT_EYE_OUTER]
+                    face_metrics = (
+                        math.hypot(l_eye.x - r_eye.x, l_eye.y - r_eye.y),
+                        lm[FACE_NOSE_TIP].y,
+                        math.degrees(math.atan2(l_eye.y - r_eye.y, l_eye.x - r_eye.x)),
+                    )
                     score = blink_score(result)
                     if not eyes_closed and score >= self.blink_threshold:
                         eyes_closed = True
@@ -200,6 +234,22 @@ class BlinkDetector(QThread):
                     closed_since = None
                     eyes_closed = False
                     blink_marker = None
+                    face_metrics = None
+
+                # Haltung: Schultern nur jeden POSE_EVERY_N-ten Frame
+                frame_no += 1
+                if frame_no % POSE_EVERY_N == 0:
+                    pose_result = pose_landmarker.detect_for_video(image, ts_ms)
+                    pose_metrics = None
+                    if pose_result.pose_landmarks:
+                        ls = pose_result.pose_landmarks[0][POSE_LEFT_SHOULDER]
+                        rs = pose_result.pose_landmarks[0][POSE_RIGHT_SHOULDER]
+                        if ls.visibility > 0.5 and rs.visibility > 0.5:
+                            tilt = math.degrees(
+                                math.atan2(ls.y - rs.y, abs(ls.x - rs.x) or 1e-6)
+                            )
+                            pose_metrics = (tilt, (ls.y + rs.y) / 2.0)
+                            pose_seen_at = now
 
                 # Rollierendes 60-Sekunden-Fenster pflegen
                 cutoff = now - RATE_WINDOW_S
@@ -217,11 +267,24 @@ class BlinkDetector(QThread):
                     since_blink = (now - blink_marker) if blink_marker is not None else 0.0
                     self.sig_tick.emit(rate, face_present, face_ratio, since_blink)
 
+                    pose_fresh = pose_metrics is not None and (now - pose_seen_at) < 2.0
+                    self.sig_posture.emit(
+                        {
+                            "valid": face_metrics is not None and pose_fresh,
+                            "eye_dist": face_metrics[0] if face_metrics else 0.0,
+                            "face_y": face_metrics[1] if face_metrics else 0.0,
+                            "head_roll": face_metrics[2] if face_metrics else 0.0,
+                            "shoulder_tilt": pose_metrics[0] if pose_fresh else 0.0,
+                            "shoulder_y": pose_metrics[1] if pose_fresh else 0.0,
+                        }
+                    )
+
                 # CPU schonen: auf Ziel-Framerate drosseln
                 elapsed = time.monotonic() - loop_start
                 if elapsed < frame_interval:
                     time.sleep(frame_interval - elapsed)
         finally:
             landmarker.close()
+            pose_landmarker.close()
             if cap is not None:
                 cap.release()

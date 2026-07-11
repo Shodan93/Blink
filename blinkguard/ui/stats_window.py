@@ -102,8 +102,9 @@ class DayChart(QWidget):
 
 
 class StatsWindow(QWidget):
-    sig_settings = Signal()  # Zahnrad geklickt -> Einstellungen öffnen
-    sig_pause = Signal()     # Pause/Fortsetzen geklickt
+    sig_settings = Signal()   # Zahnrad geklickt -> Einstellungen öffnen
+    sig_pause = Signal()      # Pause/Fortsetzen geklickt
+    sig_calibrate = Signal()  # Referenzhaltung aufnehmen
 
     def __init__(self, store: StatsStore, config):
         super().__init__()
@@ -188,6 +189,26 @@ class StatsWindow(QWidget):
 
         layout.addWidget(live_box)
 
+        # --- Haltung ---------------------------------------------------------
+        posture_box = QGroupBox("Haltung")
+        posture_layout = QHBoxLayout(posture_box)
+        self.posture_label = QLabel("Nicht kalibriert")
+        posture_layout.addWidget(self.posture_label)
+        posture_layout.addStretch()
+        self.sitting_label = QLabel("Sitzt seit: 0 min")
+        self.sitting_label.setToolTip(
+            "Durchgehende Sitzzeit; erst 3 Minuten Abwesenheit gelten als Pause."
+        )
+        posture_layout.addWidget(self.sitting_label)
+        calibrate_button = QPushButton("Jetzt gerade sitzen && als gut speichern")
+        calibrate_button.setToolTip(
+            "Setz dich so hin, wie du gesund sitzen möchtest, und klicke hier – "
+            "diese Haltung wird zur Referenz für alle Haltungs-Warnungen."
+        )
+        calibrate_button.clicked.connect(self.sig_calibrate.emit)
+        posture_layout.addWidget(calibrate_button)
+        layout.addWidget(posture_box)
+
         self._flash_timer = QTimer(self)
         self._flash_timer.setSingleShot(True)
         self._flash_timer.setInterval(350)
@@ -219,6 +240,19 @@ class StatsWindow(QWidget):
         if self.isVisible():
             self.blink_flash.setStyleSheet(self._flash_on_style)
             self._flash_timer.start()
+
+    def set_posture(self, text: str, ok: bool | None):
+        """Haltungs-Status: ok=True grün, False orange, None neutral."""
+        self.posture_label.setText(text)
+        if ok is True:
+            self.posture_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
+        elif ok is False:
+            self.posture_label.setStyleSheet("color: #e65100; font-weight: bold;")
+        else:
+            self.posture_label.setStyleSheet("color: #777777;")
+
+    def set_sitting_minutes(self, minutes: int):
+        self.sitting_label.setText(f"Sitzt seit: {minutes} min")
 
     def set_live(self, rate: float, face_present: bool, since_blink: float, paused: bool):
         """Sekündlicher Live-Status aus dem Kamera-Thread."""

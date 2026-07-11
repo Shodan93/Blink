@@ -130,6 +130,65 @@ class SettingsDialog(QDialog):
         detect_layout.addRow("Kamera:", self.combo_camera)
         layout.addWidget(detect_box)
 
+        # --- Haltung ----------------------------------------------------------
+        posture_box = QGroupBox("Haltungsüberwachung")
+        posture_layout = QFormLayout(posture_box)
+
+        self.check_posture = QCheckBox(
+            "Haltung überwachen (Referenz per Knopf im Hauptfenster aufnehmen)"
+        )
+        posture_layout.addRow(self.check_posture)
+
+        self.spin_shoulder = QSpinBox()
+        self.spin_shoulder.setRange(2, 20)
+        self.spin_shoulder.setSuffix("°")
+        posture_layout.addRow("Toleranz Schultern schief (empfohlen: 7°):", self.spin_shoulder)
+
+        self.spin_head = QSpinBox()
+        self.spin_head.setRange(2, 20)
+        self.spin_head.setSuffix("°")
+        posture_layout.addRow("Toleranz Kopf geneigt (empfohlen: 8°):", self.spin_head)
+
+        self.spin_near = QSpinBox()
+        self.spin_near.setRange(5, 40)
+        self.spin_near.setSuffix(" %")
+        posture_layout.addRow("Toleranz zu nah am Bildschirm (empfohlen: 15 %):", self.spin_near)
+
+        self.spin_slump = QSpinBox()
+        self.spin_slump.setRange(3, 20)
+        self.spin_slump.setSuffix(" %")
+        posture_layout.addRow("Toleranz eingesunken (empfohlen: 8 %):", self.spin_slump)
+
+        self.spin_grace = QSpinBox()
+        self.spin_grace.setRange(5, 120)
+        self.spin_grace.setSuffix(" s")
+        posture_layout.addRow(
+            "Warnen erst nach anhaltend schlechter Haltung von (empfohlen: 30 s):",
+            self.spin_grace,
+        )
+
+        self.spin_posture_cooldown = QSpinBox()
+        self.spin_posture_cooldown.setRange(1, 30)
+        self.spin_posture_cooldown.setSuffix(" min")
+        posture_layout.addRow(
+            "Pause zwischen Haltungs-Warnungen (empfohlen: 5 min):",
+            self.spin_posture_cooldown,
+        )
+
+        move_row = QHBoxLayout()
+        self.check_move = QCheckBox("Bewegungs-Erinnerung nach")
+        self.spin_move = QSpinBox()
+        self.spin_move.setRange(10, 120)
+        self.spin_move.setSuffix(" min")
+        self.check_move.toggled.connect(self.spin_move.setEnabled)
+        move_row.addWidget(self.check_move)
+        move_row.addWidget(self.spin_move)
+        move_row.addWidget(QLabel("Sitzen am Stück (empfohlen: 45 min)"))
+        move_row.addStretch()
+        posture_layout.addRow(move_row)
+
+        layout.addWidget(posture_box)
+
         # --- Extras ---------------------------------------------------------
         extras_box = QGroupBox("Extras")
         extras_layout = QVBoxLayout(extras_box)
@@ -178,6 +237,19 @@ class SettingsDialog(QDialog):
         self.check_rule.setChecked(cfg.get("rule_20_20_20"))
         self.check_autostart.setChecked(autostart.is_enabled())
 
+        self.check_posture.setChecked(bool(cfg.get("posture_enabled")))
+        self.spin_shoulder.setValue(int(cfg.get("posture_tol_shoulder_deg")))
+        self.spin_head.setValue(int(cfg.get("posture_tol_head_deg")))
+        self.spin_near.setValue(int(cfg.get("posture_tol_near_pct")))
+        self.spin_slump.setValue(int(cfg.get("posture_tol_slump_pct")))
+        self.spin_grace.setValue(int(cfg.get("posture_grace_s")))
+        self.spin_posture_cooldown.setValue(
+            max(1, int(cfg.get("posture_cooldown_s")) // 60)
+        )
+        self.check_move.setChecked(bool(cfg.get("move_enabled")))
+        self.spin_move.setValue(int(cfg.get("move_minutes")))
+        self.spin_move.setEnabled(bool(cfg.get("move_enabled")))
+
     def values(self) -> dict:
         return {
             "mode": "warn" if self.radio_warn.isChecked() else "stats",
@@ -192,4 +264,13 @@ class SettingsDialog(QDialog):
             "camera_index": self.combo_camera.currentData(),
             "rule_20_20_20": self.check_rule.isChecked(),
             "autostart": self.check_autostart.isChecked(),
+            "posture_enabled": self.check_posture.isChecked(),
+            "posture_tol_shoulder_deg": self.spin_shoulder.value(),
+            "posture_tol_head_deg": self.spin_head.value(),
+            "posture_tol_near_pct": self.spin_near.value(),
+            "posture_tol_slump_pct": self.spin_slump.value(),
+            "posture_grace_s": self.spin_grace.value(),
+            "posture_cooldown_s": self.spin_posture_cooldown.value() * 60,
+            "move_enabled": self.check_move.isChecked(),
+            "move_minutes": self.spin_move.value(),
         }

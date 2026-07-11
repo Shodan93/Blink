@@ -29,6 +29,21 @@ DEFAULTS = {
     "autostart": False,
     # Alle 20 Minuten an die 20-20-20-Regel erinnern
     "rule_20_20_20": False,
+    # --- Haltung (Posture) ---
+    "posture_enabled": False,
+    # Referenzhaltung aus der Kalibrierung ("so sitze ich gut")
+    "posture_baseline": None,
+    # Toleranzen relativ zur Referenz
+    "posture_tol_shoulder_deg": 7,   # Schulterlinie schief (Grad)
+    "posture_tol_head_deg": 8,       # Kopf geneigt (Grad)
+    "posture_tol_near_pct": 15,      # näher am Bildschirm (% größeres Gesicht)
+    "posture_tol_slump_pct": 8,      # eingesunken (% Bildhöhe tiefer)
+    # schlechte Haltung muss so lange anhalten, bevor gewarnt wird
+    "posture_grace_s": 30,
+    "posture_cooldown_s": 300,
+    # Erinnerung, aufzustehen, wenn man so viele Minuten am Stück sitzt
+    "move_enabled": True,
+    "move_minutes": 45,
 }
 
 

@@ -85,6 +85,20 @@ class Notifier:
         """
         self._fire("Testwarnung – so sieht die Blinzelerinnerung aus.", channels)
 
+    def warn_posture(self, issues: str):
+        self._fire(f"Haltung prüfen: {issues}.", self._config_channels())
+
+    def remind_move(self, minutes: int):
+        self.tray.showMessage(
+            "BlinkGuard – Bewegungspause",
+            f"Du sitzt seit {minutes} Minuten am Stück. "
+            "Steh kurz auf, streck dich, hol dir was zu trinken.",
+            QSystemTrayIcon.Information,
+            8000,
+        )
+        if self.config.get("warn_sound"):
+            _play_sound()
+
     def remind_20_20_20(self):
         self.tray.showMessage(RULE_TITLE, RULE_TEXT, QSystemTrayIcon.Information, 8000)
         if self.config.get("warn_sound"):
