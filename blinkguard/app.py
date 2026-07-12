@@ -2,6 +2,7 @@
 
 import sys
 import time
+from collections import deque
 
 from PySide6.QtCore import QSharedMemory, QTimer
 from PySide6.QtGui import QAction
@@ -51,6 +52,7 @@ class BlinkGuardApp:
         self._posture_bad_since = None
         self._posture_last_warn = 0.0
         self._calibration_samples = None  # list = Kalibrierung läuft
+        self._posture_window = deque(maxlen=5)  # Glättung über ~5 s
         # Bewegungs-Erinnerung
         self._present_s = 0
         self._absent_s = 0
@@ -93,6 +95,7 @@ class BlinkGuardApp:
         self.stats_window.sig_settings.connect(self.show_settings)
         self.stats_window.sig_pause.connect(self.toggle_pause)
         self.stats_window.sig_calibrate.connect(self.start_posture_calibration)
+        self.stats_window.sig_preview_toggled.connect(self._set_preview)
         self.notifier = Notifier(self.tray, self.config)
 
         # --- Erkennungs-Thread -------------------------------------------
@@ -103,6 +106,7 @@ class BlinkGuardApp:
         self.detector.sig_blink.connect(self._on_blink)
         self.detector.sig_tick.connect(self._on_tick)
         self.detector.sig_posture.connect(self._on_posture)
+        self.detector.sig_preview.connect(self.stats_window.set_preview_image)
         self.detector.sig_error.connect(self._on_camera_error)
         self.detector.start()
 
@@ -189,6 +193,9 @@ class BlinkGuardApp:
         else:
             self.tray.setToolTip(f"{APP_NAME} – kein Gesicht erkannt")
 
+    def _set_preview(self, enabled: bool):
+        self.detector.set_preview(enabled)
+
     # --- Haltung (Posture) ---------------------------------------------------
     def start_posture_calibration(self):
         """Einige Sekunden Metriken sammeln und als Referenzhaltung speichern."""
@@ -196,28 +203,40 @@ class BlinkGuardApp:
         self._calibration_started = time.monotonic()
         self.stats_window.set_posture("Kalibriere … bitte gerade sitzen bleiben", None)
 
+    @staticmethod
+    def _average_metrics(samples: list[dict]) -> dict:
+        """Mittelwert über Metrik-Samples; neck_len nur aus gültigen Werten."""
+        keys = ("eye_dist", "face_y", "head_roll", "shoulder_tilt", "shoulder_y", "shoulder_width")
+        avg = {k: sum(s[k] for s in samples) / len(samples) for k in keys}
+        necks = [s["neck_len"] for s in samples if s.get("neck_len") is not None]
+        # Ohren müssen in der Mehrzahl der Samples sichtbar sein
+        avg["neck_len"] = sum(necks) / len(necks) if len(necks) * 2 > len(samples) else None
+        return avg
+
     def _on_posture(self, m: dict):
         # Kalibrierung läuft?
         if self._calibration_samples is not None:
             if m["valid"]:
                 self._calibration_samples.append(m)
-            if len(self._calibration_samples) >= 3:
-                samples = self._calibration_samples
+            if len(self._calibration_samples) >= 4:
+                baseline = self._average_metrics(self._calibration_samples)
                 self._calibration_samples = None
-                baseline = {
-                    key: sum(s[key] for s in samples) / len(samples)
-                    for key in ("eye_dist", "face_y", "head_roll", "shoulder_tilt", "shoulder_y")
-                }
                 self.config.set("posture_baseline", baseline)
                 self.config.set("posture_enabled", True)
                 self.config.save()
+                hint = (
+                    ""
+                    if baseline["neck_len"] is not None
+                    else " (Ohren waren nicht sichtbar – Geierhals-/Schulter-hochziehen-"
+                    "Erkennung inaktiv, ggf. neu kalibrieren)"
+                )
                 self.tray.showMessage(
                     APP_NAME,
-                    "Referenzhaltung gespeichert – Haltungsüberwachung ist aktiv.",
+                    f"Referenzhaltung gespeichert – Haltungsüberwachung ist aktiv.{hint}",
                     QSystemTrayIcon.Information,
                     5000,
                 )
-            elif time.monotonic() - self._calibration_started > 10.0:
+            elif time.monotonic() - self._calibration_started > 12.0:
                 self._calibration_samples = None
                 self.stats_window.set_posture(
                     "Kalibrierung fehlgeschlagen – Gesicht und Schultern "
@@ -234,28 +253,52 @@ class BlinkGuardApp:
             self.stats_window.set_posture("Nicht kalibriert", None)
             return
         if self.paused or not m["valid"]:
+            self._posture_window.clear()
             self._posture_bad_since = None
             self.stats_window.set_posture("–", None)
             return
 
+        # Glättung: kurzes Wackeln/Messrauschen löst keine Warnung aus
+        self._posture_window.append(m)
+        avg = self._average_metrics(list(self._posture_window))
+
+        cfg = self.config
         issues = []
-        if abs(m["shoulder_tilt"] - baseline["shoulder_tilt"]) > float(
-            self.config.get("posture_tol_shoulder_deg")
-        ):
+        if cfg.get("posture_check_shoulder") and abs(
+            avg["shoulder_tilt"] - baseline["shoulder_tilt"]
+        ) > float(cfg.get("posture_tol_shoulder_deg")):
             issues.append("Schultern ungleich hoch")
-        if abs(m["head_roll"] - baseline["head_roll"]) > float(
-            self.config.get("posture_tol_head_deg")
-        ):
+        if cfg.get("posture_check_head") and abs(
+            avg["head_roll"] - baseline["head_roll"]
+        ) > float(cfg.get("posture_tol_head_deg")):
             issues.append("Kopf geneigt")
-        if m["eye_dist"] > baseline["eye_dist"] * (
-            1.0 + float(self.config.get("posture_tol_near_pct")) / 100.0
+        if cfg.get("posture_check_near") and avg["eye_dist"] > baseline["eye_dist"] * (
+            1.0 + float(cfg.get("posture_tol_near_pct")) / 100.0
         ):
             issues.append("zu nah am Bildschirm")
-        slump = float(self.config.get("posture_tol_slump_pct")) / 100.0
-        if (m["face_y"] - baseline["face_y"]) > slump or (
-            m["shoulder_y"] - baseline["shoulder_y"]
-        ) > slump:
-            issues.append("eingesunken")
+        if cfg.get("posture_check_slump"):
+            slump = float(cfg.get("posture_tol_slump_pct")) / 100.0
+            if (avg["face_y"] - baseline["face_y"]) > slump or (
+                avg["shoulder_y"] - baseline["shoulder_y"]
+            ) > slump:
+                issues.append("eingesunken")
+        # Geierhals: Gesicht rückt vor, ohne dass der Oberkörper mitkommt ->
+        # das Verhältnis Gesichtsgröße/Schulterbreite steigt
+        if cfg.get("posture_check_fhp") and baseline.get("shoulder_width"):
+            ratio = (avg["eye_dist"] / avg["shoulder_width"]) / (
+                baseline["eye_dist"] / baseline["shoulder_width"]
+            )
+            if ratio > 1.0 + float(cfg.get("posture_tol_fhp_pct")) / 100.0:
+                issues.append("Geierhals (Kopf vorgeschoben)")
+        # Hochgezogene Schultern: Abstand Ohren->Schultern schrumpft
+        if (
+            cfg.get("posture_check_shrug")
+            and baseline.get("neck_len")
+            and avg["neck_len"] is not None
+            and avg["neck_len"]
+            < baseline["neck_len"] * (1.0 - float(cfg.get("posture_tol_shrug_pct")) / 100.0)
+        ):
+            issues.append("Schultern hochgezogen")
 
         now = time.monotonic()
         if issues:
@@ -354,7 +397,9 @@ class BlinkGuardApp:
         )
         self.detector.sig_blink.connect(self._on_blink)
         self.detector.sig_tick.connect(self._on_tick)
-        self.detector.sig_error.connect(self._on_camera_error)
+        self.detector.sig_posture.connect(self._on_posture)
+        self.detector.sig_preview.connect(self.stats_window.set_preview_image)
+        self.detector.set_preview(self.stats_window.preview_active())
         self.detector.set_paused(self.paused)
         self.detector.start()
 

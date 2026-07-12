@@ -102,16 +102,17 @@ class DayChart(QWidget):
 
 
 class StatsWindow(QWidget):
-    sig_settings = Signal()   # Zahnrad geklickt -> Einstellungen öffnen
-    sig_pause = Signal()      # Pause/Fortsetzen geklickt
-    sig_calibrate = Signal()  # Referenzhaltung aufnehmen
+    sig_settings = Signal()          # Zahnrad geklickt -> Einstellungen öffnen
+    sig_pause = Signal()             # Pause/Fortsetzen geklickt
+    sig_calibrate = Signal()         # Referenzhaltung aufnehmen
+    sig_preview_toggled = Signal(bool)  # KI-Vorschau an/aus
 
     def __init__(self, store: StatsStore, config):
         super().__init__()
         self.store = store
         self.config = config
-        self.setWindowTitle("BlinkGuard")
-        self.resize(560, 440)
+        self.setWindowTitle("BlinkGuard – PC Health Assistant")
+        self.resize(580, 520)
 
         layout = QVBoxLayout(self)
 
@@ -120,6 +121,14 @@ class StatsWindow(QWidget):
         self.status_label = QLabel("● startet …")
         header.addWidget(self.status_label)
         header.addStretch()
+        self.preview_button = QPushButton("📷 KI-Vorschau")
+        self.preview_button.setCheckable(True)
+        self.preview_button.setToolTip(
+            "Zeigt live, was die Erkennung sieht: Augen (grün), Schulterlinie "
+            "(gelb) und Nackenlinien (orange). Das Bild bleibt komplett lokal."
+        )
+        self.preview_button.toggled.connect(self._on_preview_toggled)
+        header.addWidget(self.preview_button)
         self.pause_button = QPushButton("⏸ Pause")
         self.pause_button.setToolTip("Erkennung pausieren/fortsetzen (gibt die Kamera frei)")
         self.pause_button.clicked.connect(self.sig_pause.emit)
@@ -209,6 +218,17 @@ class StatsWindow(QWidget):
         posture_layout.addWidget(calibrate_button)
         layout.addWidget(posture_box)
 
+        # --- KI-Vorschau (eingeklappt, bis der Button gedrückt wird) --------
+        self.preview_label = QLabel()
+        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setMinimumHeight(240)
+        self.preview_label.setStyleSheet(
+            "background: #101418; color: #9aa4b0; border-radius: 8px;"
+        )
+        self.preview_label.setText("Vorschau startet …")
+        self.preview_label.hide()
+        layout.addWidget(self.preview_label)
+
         self._flash_timer = QTimer(self)
         self._flash_timer.setSingleShot(True)
         self._flash_timer.setInterval(350)
@@ -240,6 +260,21 @@ class StatsWindow(QWidget):
         if self.isVisible():
             self.blink_flash.setStyleSheet(self._flash_on_style)
             self._flash_timer.start()
+
+    def _on_preview_toggled(self, on: bool):
+        self.preview_label.setVisible(on)
+        if on:
+            self.preview_label.setText("Vorschau startet …")
+        self.sig_preview_toggled.emit(on)
+
+    def preview_active(self) -> bool:
+        return self.preview_button.isChecked()
+
+    def set_preview_image(self, image):
+        if self.preview_button.isChecked():
+            from PySide6.QtGui import QPixmap
+
+            self.preview_label.setPixmap(QPixmap.fromImage(image))
 
     def set_posture(self, text: str, ok: bool | None):
         """Haltungs-Status: ok=True grün, False orange, None neutral."""
@@ -303,6 +338,10 @@ class StatsWindow(QWidget):
 
     def hideEvent(self, event):
         self._refresh_timer.stop()
+        # Vorschau stoppen, sobald das Fenster zu ist (spart CPU, Kamera läuft
+        # für die Erkennung natürlich weiter)
+        if self.preview_button.isChecked():
+            self.preview_button.setChecked(False)
         super().hideEvent(event)
 
     def closeEvent(self, event):

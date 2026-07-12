@@ -33,11 +33,22 @@ DEFAULTS = {
     "posture_enabled": False,
     # Referenzhaltung aus der Kalibrierung ("so sitze ich gut")
     "posture_baseline": None,
+    # Preset: "soft" | "balanced" | "strict" | "custom"
+    "posture_preset": "balanced",
+    # Einzelne Prüfungen an/aus
+    "posture_check_shoulder": True,  # Schultern ungleich hoch
+    "posture_check_head": True,      # Kopf geneigt
+    "posture_check_near": True,      # zu nah am Bildschirm
+    "posture_check_slump": True,     # eingesunken
+    "posture_check_fhp": True,       # Geierhals (Kopf vorgeschoben)
+    "posture_check_shrug": True,     # Schultern hochgezogen
     # Toleranzen relativ zur Referenz
     "posture_tol_shoulder_deg": 7,   # Schulterlinie schief (Grad)
     "posture_tol_head_deg": 8,       # Kopf geneigt (Grad)
     "posture_tol_near_pct": 15,      # näher am Bildschirm (% größeres Gesicht)
     "posture_tol_slump_pct": 8,      # eingesunken (% Bildhöhe tiefer)
+    "posture_tol_fhp_pct": 12,       # Geierhals: Gesicht/Schulter-Verhältnis (%)
+    "posture_tol_shrug_pct": 15,     # Schultern hochgezogen: Nackenlänge (%)
     # schlechte Haltung muss so lange anhalten, bevor gewarnt wird
     "posture_grace_s": 30,
     "posture_cooldown_s": 300,
