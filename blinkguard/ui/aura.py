@@ -15,9 +15,10 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QLinearGradient, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
-AURA_COLOR = QColor(15, 70, 170)   # dunkleres Blau
-EDGE_ALPHA = 95                    # Deckkraft direkt am Rand (dezent)
-DEPTH_RATIO = 0.20                 # wie weit das Glühen in den Bildschirm fadet
+AURA_BLUE = QColor(15, 70, 170)     # Blinzel-Erinnerung
+AURA_YELLOW = QColor(200, 150, 10)  # Haltungs-/Bewegungs-Erinnerung
+EDGE_ALPHA = 95                     # Deckkraft direkt am Rand (dezent)
+DEPTH_RATIO = 0.20                  # wie weit das Glühen in den Bildschirm fadet
 
 
 class AuraOverlay(QWidget):
@@ -35,15 +36,16 @@ class AuraOverlay(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
         self._animation = None
+        self._color = AURA_BLUE
 
     def paintEvent(self, event):
         painter = QPainter(self)
         w, h = self.width(), self.height()
         depth = max(40, int(min(w, h) * DEPTH_RATIO))
 
-        edge = QColor(AURA_COLOR)
+        edge = QColor(self._color)
         edge.setAlpha(EDGE_ALPHA)
-        transparent = QColor(AURA_COLOR)
+        transparent = QColor(self._color)
         transparent.setAlpha(0)
 
         # Vier Randverläufe über die volle Länge; in den Ecken überlagern
@@ -60,8 +62,9 @@ class AuraOverlay(QWidget):
             grad.setColorAt(1.0, transparent)
             painter.fillRect(rx, ry, rw, rh, grad)
 
-    def flash(self):
+    def flash(self, color: QColor | None = None):
         """Aura einblenden, zweimal pulsieren, ausblenden."""
+        self._color = color or AURA_BLUE
         self.setGeometry(QApplication.primaryScreen().geometry())
         self.setWindowOpacity(0.0)
         self.show()

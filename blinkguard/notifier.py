@@ -6,9 +6,11 @@ import threading
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from blinkguard.config import Config, asset_path
-from blinkguard.ui.aura import AuraOverlay
+from blinkguard.ui.aura import AURA_BLUE, AURA_YELLOW, AuraOverlay
 
 WARN_TITLE = "BlinkGuard – Augen-Erinnerung"
+POSTURE_TITLE = "BlinkGuard – Haltung"
+MOVE_TITLE = "BlinkGuard – Bewegung"
 WARN_TEXT = (
     "Du blinzelst gerade sehr selten ({rate:.0f}×/min). "
     "Blinzle ein paar Mal bewusst, das hält die Augen feucht."
@@ -56,11 +58,11 @@ class Notifier:
         self.config = config
         self.aura = AuraOverlay()
 
-    def _fire(self, text: str, channels: dict):
+    def _fire(self, text: str, channels: dict, title: str = WARN_TITLE, color=AURA_BLUE):
         if channels.get("warn_toast"):
-            self.tray.showMessage(WARN_TITLE, text, QSystemTrayIcon.Information, 6000)
+            self.tray.showMessage(title, text, QSystemTrayIcon.Information, 6000)
         if channels.get("warn_overlay"):
-            self.aura.flash()
+            self.aura.flash(color)
         if channels.get("warn_sound"):
             _play_sound()
 
@@ -86,18 +88,30 @@ class Notifier:
         self._fire("Testwarnung – so sieht die Blinzelerinnerung aus.", channels)
 
     def warn_posture(self, issues: str):
-        self._fire(f"Haltung prüfen: {issues}.", self._config_channels())
+        self._fire(
+            f"Haltung prüfen: {issues}.",
+            self._config_channels(),
+            title=POSTURE_TITLE,
+            color=AURA_YELLOW,
+        )
 
     def remind_move(self, minutes: int):
-        self.tray.showMessage(
-            "BlinkGuard – Bewegungspause",
+        self._fire(
             f"Du sitzt seit {minutes} Minuten am Stück. "
             "Steh kurz auf, streck dich, hol dir was zu trinken.",
-            QSystemTrayIcon.Information,
-            8000,
+            self._config_channels(),
+            title=MOVE_TITLE,
+            color=AURA_YELLOW,
         )
-        if self.config.get("warn_sound"):
-            _play_sound()
+
+    def remind_stillness(self, minutes: int):
+        self._fire(
+            f"Seit {minutes} Minuten kaum Bewegung – wechsle kurz die "
+            "Sitzposition, roll die Schultern, streck dich.",
+            self._config_channels(),
+            title=MOVE_TITLE,
+            color=AURA_YELLOW,
+        )
 
     def remind_20_20_20(self):
         self.tray.showMessage(RULE_TITLE, RULE_TEXT, QSystemTrayIcon.Information, 8000)

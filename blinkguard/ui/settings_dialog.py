@@ -30,7 +30,7 @@ POSTURE_PRESETS = {
         "posture_tol_near_pct": 22,
         "posture_tol_slump_pct": 12,
         "posture_tol_fhp_pct": 18,
-        "posture_tol_shrug_pct": 22,
+        "posture_tol_shrug_pct": 15,
         "posture_grace_s": 45,
     },
     "balanced": {
@@ -39,7 +39,7 @@ POSTURE_PRESETS = {
         "posture_tol_near_pct": 15,
         "posture_tol_slump_pct": 8,
         "posture_tol_fhp_pct": 12,
-        "posture_tol_shrug_pct": 15,
+        "posture_tol_shrug_pct": 10,
         "posture_grace_s": 30,
     },
     "strict": {
@@ -48,7 +48,7 @@ POSTURE_PRESETS = {
         "posture_tol_near_pct": 10,
         "posture_tol_slump_pct": 6,
         "posture_tol_fhp_pct": 8,
-        "posture_tol_shrug_pct": 10,
+        "posture_tol_shrug_pct": 6,
         "posture_grace_s": 20,
     },
 }
@@ -231,11 +231,13 @@ class SettingsDialog(QDialog):
             "Jeder Zentimeter Vorschub erhöht die Last auf die Halswirbelsäule "
             "spürbar.",
         )
-        self.spin_shrug = QSpinBox(); self.spin_shrug.setRange(5, 40)
+        self.spin_shrug = QSpinBox(); self.spin_shrug.setRange(3, 40)
         self.check_shrug = check_row(
             "Schultern hochgezogen", self.spin_shrug, " %",
             "Die Schultern wandern Richtung Ohren (Nackenlinie verkürzt sich) – "
-            "klassische Stress-Verspannung des Trapezmuskels.",
+            "klassische Stress-Verspannung des Trapezmuskels. Wird je Seite "
+            "getrennt gemessen, sodass auch einseitiges Hochziehen auffällt. "
+            "3–6 % = sehr empfindlich.",
         )
         layout.addWidget(checks_box)
 
@@ -263,6 +265,23 @@ class SettingsDialog(QDialog):
         move_row.addWidget(QLabel("Sitzen am Stück (empfohlen: 45 min)"))
         move_row.addStretch()
         timing.addRow(move_row)
+
+        still_row = QHBoxLayout()
+        self.check_still = QCheckBox("Stillsitz-Erinnerung nach")
+        self.check_still.setToolTip(
+            "Erinnert ans Bewegen, wenn sich Kopf und Schultern über den "
+            "gesamten Zeitraum praktisch nicht bewegt haben – statisches "
+            "Sitzen ermüdet die Muskulatur auch in guter Haltung."
+        )
+        self.spin_still = QSpinBox()
+        self.spin_still.setRange(5, 60)
+        self.spin_still.setSuffix(" min")
+        self.check_still.toggled.connect(self.spin_still.setEnabled)
+        still_row.addWidget(self.check_still)
+        still_row.addWidget(self.spin_still)
+        still_row.addWidget(QLabel("ohne nennenswerte Bewegung (empfohlen: 10 min)"))
+        still_row.addStretch()
+        timing.addRow(still_row)
         layout.addWidget(timing_box)
 
         # Jede manuelle Änderung schaltet das Profil auf "Eigene Werte"
@@ -388,6 +407,9 @@ class SettingsDialog(QDialog):
         self.check_move.setChecked(bool(cfg.get("move_enabled")))
         self.spin_move.setValue(int(cfg.get("move_minutes")))
         self.spin_move.setEnabled(bool(cfg.get("move_enabled")))
+        self.check_still.setChecked(bool(cfg.get("still_enabled")))
+        self.spin_still.setValue(int(cfg.get("still_minutes")))
+        self.spin_still.setEnabled(bool(cfg.get("still_enabled")))
 
         self.slider_sensitivity.setValue(round(float(cfg.get("blink_threshold")) * 100))
         self.sensitivity_label.setText(f"{cfg.get('blink_threshold'):.2f}")
@@ -436,4 +458,6 @@ class SettingsDialog(QDialog):
             "posture_cooldown_s": self.spin_posture_cooldown.value() * 60,
             "move_enabled": self.check_move.isChecked(),
             "move_minutes": self.spin_move.value(),
+            "still_enabled": self.check_still.isChecked(),
+            "still_minutes": self.spin_still.value(),
         }

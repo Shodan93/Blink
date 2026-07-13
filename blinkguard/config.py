@@ -48,13 +48,16 @@ DEFAULTS = {
     "posture_tol_near_pct": 15,      # näher am Bildschirm (% größeres Gesicht)
     "posture_tol_slump_pct": 8,      # eingesunken (% Bildhöhe tiefer)
     "posture_tol_fhp_pct": 12,       # Geierhals: Gesicht/Schulter-Verhältnis (%)
-    "posture_tol_shrug_pct": 15,     # Schultern hochgezogen: Nackenlänge (%)
+    "posture_tol_shrug_pct": 10,     # Schultern hochgezogen: Nackenlänge je Seite (%)
     # schlechte Haltung muss so lange anhalten, bevor gewarnt wird
     "posture_grace_s": 30,
     "posture_cooldown_s": 300,
     # Erinnerung, aufzustehen, wenn man so viele Minuten am Stück sitzt
     "move_enabled": True,
     "move_minutes": 45,
+    # Erinnerung, wenn man so viele Minuten praktisch bewegungslos sitzt
+    "still_enabled": True,
+    "still_minutes": 10,
 }
 
 

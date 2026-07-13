@@ -28,9 +28,10 @@ MODELS = {
     "face_landmarker.task": (
         f"{_MODEL_BASE}/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
     ),
-    "pose_landmarker_lite.task": (
-        f"{_MODEL_BASE}/pose_landmarker/pose_landmarker_lite/float16/1/"
-        "pose_landmarker_lite.task"
+    # "full" statt "lite": deutlich präzisere Schulter-/Ohr-Punkte, ~37 ms/Frame
+    "pose_landmarker_full.task": (
+        f"{_MODEL_BASE}/pose_landmarker/pose_landmarker_full/float16/1/"
+        "pose_landmarker_full.task"
     ),
 }
 
@@ -126,7 +127,7 @@ class BlinkDetector(QThread):
     def run(self):
         try:
             face_model = ensure_model("face_landmarker.task")
-            pose_model = ensure_model("pose_landmarker_lite.task")
+            pose_model = ensure_model("pose_landmarker_full.task")
         except OSError as exc:
             self.sig_error.emit(
                 "Die Erkennungsmodelle konnten nicht heruntergeladen werden "
@@ -232,6 +233,7 @@ class BlinkDetector(QThread):
                         math.hypot(l_eye.x - r_eye.x, l_eye.y - r_eye.y),
                         lm[FACE_NOSE_TIP].y,
                         math.degrees(math.atan2(l_eye.y - r_eye.y, l_eye.x - r_eye.x)),
+                        lm[FACE_NOSE_TIP].x,
                     )
                     score = blink_score(result)
                     if not eyes_closed and score >= self.blink_threshold:
@@ -262,28 +264,30 @@ class BlinkDetector(QThread):
                         le, re = plm[POSE_LEFT_EAR], plm[POSE_RIGHT_EAR]
                         if ls.visibility > 0.5 and rs.visibility > 0.5:
                             width = abs(ls.x - rs.x) or 1e-6
-                            ears_ok = le.visibility > 0.5 and re.visibility > 0.5
-                            # Nackenlänge: Abstand Ohren->Schultern, normiert auf
-                            # die Schulterbreite (hochgezogene Schultern -> kleiner)
-                            neck_len = (
-                                ((ls.y + rs.y) / 2.0 - (le.y + re.y) / 2.0) / width
-                                if ears_ok
-                                else None
-                            )
+                            # Nackenlänge je Seite: Abstand Ohr->Schulter,
+                            # normiert auf die Schulterbreite. Getrennt gemessen,
+                            # damit auch einseitiges Hochziehen auffällt.
+                            left_ok = le.visibility > 0.5
+                            right_ok = re.visibility > 0.5
+                            neck_left = (ls.y - le.y) / width if left_ok else None
+                            neck_right = (rs.y - re.y) / width if right_ok else None
+                            necks = [n for n in (neck_left, neck_right) if n is not None]
                             pose_metrics = {
                                 "shoulder_tilt": math.degrees(
                                     math.atan2(ls.y - rs.y, width)
                                 ),
                                 "shoulder_y": (ls.y + rs.y) / 2.0,
                                 "shoulder_width": width,
-                                "neck_len": neck_len,
+                                "neck_left": neck_left,
+                                "neck_right": neck_right,
+                                "neck_len": sum(necks) / len(necks) if necks else None,
                             }
                             pose_seen_at = now
                             pose_draw = {
                                 "ls": (ls.x, ls.y),
                                 "rs": (rs.x, rs.y),
-                                "le": (le.x, le.y) if ears_ok else None,
-                                "re": (re.x, re.y) if ears_ok else None,
+                                "le": (le.x, le.y) if left_ok else None,
+                                "re": (re.x, re.y) if right_ok else None,
                             }
 
                 # Vorschau mit Overlay (nur wenn im Fenster sichtbar)
@@ -317,9 +321,12 @@ class BlinkDetector(QThread):
                             "eye_dist": face_metrics[0] if face_metrics else 0.0,
                             "face_y": face_metrics[1] if face_metrics else 0.0,
                             "head_roll": face_metrics[2] if face_metrics else 0.0,
+                            "face_x": face_metrics[3] if face_metrics else 0.0,
                             "shoulder_tilt": pose_metrics["shoulder_tilt"] if pose_fresh else 0.0,
                             "shoulder_y": pose_metrics["shoulder_y"] if pose_fresh else 0.0,
                             "shoulder_width": pose_metrics["shoulder_width"] if pose_fresh else 0.0,
+                            "neck_left": pose_metrics["neck_left"] if pose_fresh else None,
+                            "neck_right": pose_metrics["neck_right"] if pose_fresh else None,
                             "neck_len": pose_metrics["neck_len"] if pose_fresh else None,
                         }
                     )

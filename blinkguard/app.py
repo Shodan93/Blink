@@ -53,6 +53,7 @@ class BlinkGuardApp:
         self._posture_last_warn = 0.0
         self._calibration_samples = None  # list = Kalibrierung läuft
         self._posture_window = deque(maxlen=5)  # Glättung über ~5 s
+        self._still_window = deque()  # (ts, face_x, face_y, shoulder_y) für Stillsitz
         # Bewegungs-Erinnerung
         self._present_s = 0
         self._absent_s = 0
@@ -205,12 +206,13 @@ class BlinkGuardApp:
 
     @staticmethod
     def _average_metrics(samples: list[dict]) -> dict:
-        """Mittelwert über Metrik-Samples; neck_len nur aus gültigen Werten."""
-        keys = ("eye_dist", "face_y", "head_roll", "shoulder_tilt", "shoulder_y", "shoulder_width")
-        avg = {k: sum(s[k] for s in samples) / len(samples) for k in keys}
-        necks = [s["neck_len"] for s in samples if s.get("neck_len") is not None]
-        # Ohren müssen in der Mehrzahl der Samples sichtbar sein
-        avg["neck_len"] = sum(necks) / len(necks) if len(necks) * 2 > len(samples) else None
+        """Mittelwert über Metrik-Samples; Nackenwerte nur aus gültigen Samples."""
+        keys = ("eye_dist", "face_y", "head_roll", "face_x", "shoulder_tilt", "shoulder_y", "shoulder_width")
+        avg = {k: sum(s.get(k, 0.0) for s in samples) / len(samples) for k in keys}
+        for key in ("neck_len", "neck_left", "neck_right"):
+            vals = [s[key] for s in samples if s.get(key) is not None]
+            # Ohr muss in der Mehrzahl der Samples sichtbar sein
+            avg[key] = sum(vals) / len(vals) if len(vals) * 2 > len(samples) else None
         return avg
 
     def _on_posture(self, m: dict):
@@ -254,6 +256,7 @@ class BlinkGuardApp:
             return
         if self.paused or not m["valid"]:
             self._posture_window.clear()
+            self._still_window.clear()
             self._posture_bad_since = None
             self.stats_window.set_posture("–", None)
             return
@@ -290,17 +293,44 @@ class BlinkGuardApp:
             )
             if ratio > 1.0 + float(cfg.get("posture_tol_fhp_pct")) / 100.0:
                 issues.append("Geierhals (Kopf vorgeschoben)")
-        # Hochgezogene Schultern: Abstand Ohren->Schultern schrumpft
-        if (
-            cfg.get("posture_check_shrug")
-            and baseline.get("neck_len")
-            and avg["neck_len"] is not None
-            and avg["neck_len"]
-            < baseline["neck_len"] * (1.0 - float(cfg.get("posture_tol_shrug_pct")) / 100.0)
-        ):
-            issues.append("Schultern hochgezogen")
+        # Hochgezogene Schultern: Abstand Ohr->Schulter schrumpft. Je Seite
+        # getrennt geprüft, damit auch einseitiges Hochziehen auffällt.
+        if cfg.get("posture_check_shrug"):
+            factor = 1.0 - float(cfg.get("posture_tol_shrug_pct")) / 100.0
+            sides = [
+                s
+                for s in ("neck_left", "neck_right", "neck_len")
+                if baseline.get(s) and avg.get(s) is not None
+            ]
+            # per-Seite bevorzugen; neck_len nur als Fallback für alte Baselines
+            if "neck_left" in sides or "neck_right" in sides:
+                sides = [s for s in sides if s != "neck_len"]
+            if any(avg[s] < baseline[s] * factor for s in sides):
+                issues.append("Schultern hochgezogen")
 
         now = time.monotonic()
+
+        # Stillsitz-Erkennung: bewegt sich über Minuten praktisch nichts,
+        # ist selbst eine "gute" Haltung ungesund -> ans Bewegen erinnern
+        STILL_EPS = 0.02  # ~2 % der Bildgröße
+        self._still_window.append((now, avg["face_x"], avg["face_y"], avg["shoulder_y"]))
+        still_span = float(cfg.get("still_minutes")) * 60.0
+        while self._still_window and self._still_window[0][0] < now - still_span:
+            self._still_window.popleft()
+        if (
+            cfg.get("still_enabled")
+            and self.config.get("mode") == "warn"
+            and len(self._still_window) > 10
+            and now - self._still_window[0][0] >= still_span - 2.0
+        ):
+            still = all(
+                max(s[i] for s in self._still_window) - min(s[i] for s in self._still_window)
+                < STILL_EPS
+                for i in (1, 2, 3)
+            )
+            if still:
+                self._still_window.clear()
+                self.notifier.remind_stillness(int(cfg.get("still_minutes")))
         if issues:
             text = ", ".join(issues)
             self.stats_window.set_posture("⚠ " + text, False)
